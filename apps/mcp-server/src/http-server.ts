@@ -1,17 +1,20 @@
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import type { Database } from "bun:sqlite";
 import type { ProcessRunner } from "@codem/core";
-import type { CodeMHttpConfig } from "./config.ts";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { EmbeddedAuthorizationServer } from "./auth/embedded.ts";
 import { IntrospectionAccessTokenVerifier, UnauthorizedError } from "./auth/introspection.ts";
 import {
   createBearerChallenge,
   createProtectedResourceMetadata,
 } from "./auth/protected-resource.ts";
+import type { CodeMHttpConfig, ExternalAuthConfig } from "./config.ts";
 import { createCodeMServer } from "./create-server.ts";
 import type { GitHubConnectionProvider } from "./create-server.ts";
 
 export interface HttpServerDependencies {
   workspaceRoot: string;
   processRunner: ProcessRunner;
+  database: Database;
   github?: GitHubConnectionProvider;
 }
 
@@ -29,14 +32,24 @@ export function createHttpHandler(
   config: CodeMHttpConfig,
   dependencies: HttpServerDependencies,
 ): (request: Request) => Promise<Response> {
-  const verifier = new IntrospectionAccessTokenVerifier({
-    introspectionUrl: config.auth.introspectionUrl,
-    clientId: config.auth.clientId,
-    clientSecret: config.auth.clientSecret,
-    resource: config.publicUrl,
-  });
+  const embedded =
+    config.auth.provider === "embedded"
+      ? new EmbeddedAuthorizationServer({
+          database: dependencies.database,
+          config: config as CodeMHttpConfig & { auth: Extract<CodeMHttpConfig["auth"], { provider: "embedded" }> },
+        })
+      : undefined;
+  const external =
+    config.auth.provider === "external-oidc"
+      ? new IntrospectionAccessTokenVerifier({
+          introspectionUrl: (config.auth as ExternalAuthConfig).introspectionUrl,
+          clientId: (config.auth as ExternalAuthConfig).clientId,
+          clientSecret: (config.auth as ExternalAuthConfig).clientSecret,
+          resource: config.mcpUrl,
+        })
+      : undefined;
   const metadata = createProtectedResourceMetadata({
-    resource: config.publicUrl,
+    resource: config.mcpUrl,
     authorizationServer: config.auth.issuer,
     scopes: config.auth.scopes,
   });
@@ -49,23 +62,24 @@ export function createHttpHandler(
     }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ status: "ok", transport: "http" });
+      return json({ status: "ok", transport: "http", database: "ready" });
     }
 
     if (request.method === "GET" && url.pathname === "/.well-known/oauth-protected-resource") {
       return json(metadata);
     }
 
-    if (url.pathname !== "/mcp") {
-      return json({ error: "not_found" }, 404);
-    }
+    const authResponse = await embedded?.handle(request);
+    if (authResponse) return authResponse;
 
+    if (url.pathname !== "/mcp") return json({ error: "not_found" }, 404);
     if (request.method !== "POST") {
       return json({ error: "method_not_allowed" }, 405, { allow: "POST" });
     }
 
     try {
-      const authInfo = await verifier.verify(request);
+      const authInfo = embedded ? await embedded.verify(request) : await external?.verify(request);
+      if (!authInfo) throw new UnauthorizedError();
       const server = createCodeMServer({
         workspaceRoot: dependencies.workspaceRoot,
         processRunner: dependencies.processRunner,
@@ -82,7 +96,7 @@ export function createHttpHandler(
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return json({ error: "unauthorized", message: error.message }, 401, {
-          "www-authenticate": createBearerChallenge(config.publicUrl),
+          "www-authenticate": createBearerChallenge(config.mcpUrl),
         });
       }
       const message = error instanceof Error ? error.message : "Internal server error.";
