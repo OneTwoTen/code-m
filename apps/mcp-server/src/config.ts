@@ -1,4 +1,7 @@
+import { join } from "node:path";
+
 export type CodeMTransport = "stdio" | "http";
+export type CodeMAuthProvider = "embedded" | "external-oidc";
 
 export interface GitHubAppConfig {
   appId: string;
@@ -17,19 +20,32 @@ export interface CodeMStdioConfig extends CodeMBaseConfig {
   transport: "stdio";
 }
 
+export interface EmbeddedAuthConfig {
+  provider: "embedded";
+  issuer: URL;
+  scopes: string[];
+}
+
+export interface ExternalAuthConfig {
+  provider: "external-oidc";
+  issuer: URL;
+  introspectionUrl: URL;
+  clientId: string;
+  clientSecret: string;
+  scopes: string[];
+}
+
 export interface CodeMHttpConfig extends CodeMBaseConfig {
   transport: "http";
   host: string;
   port: number;
   publicUrl: URL;
+  mcpUrl: URL;
   allowedHosts: string[];
-  auth: {
-    issuer: URL;
-    introspectionUrl: URL;
-    clientId: string;
-    clientSecret: string;
-    scopes: string[];
-  };
+  secretKey: string;
+  dataDir: string;
+  databaseUrl: string;
+  auth: EmbeddedAuthConfig | ExternalAuthConfig;
   allowRemoteTerminal: boolean;
 }
 
@@ -64,6 +80,19 @@ function parseUrl(value: string, name: string): URL {
   }
 }
 
+function parsePublicUrl(value: string): URL {
+  const url = parseUrl(value, "CODEM_PUBLIC_URL");
+  const localhost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !(localhost && url.protocol === "http:")) {
+    throw new Error("CODEM_PUBLIC_URL must use HTTPS outside localhost.");
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error("CODEM_PUBLIC_URL must not contain credentials, query parameters, or fragments.");
+  }
+  url.pathname = url.pathname.replace(/\/$/, "") || "/";
+  return url;
+}
+
 function parseGitHubConfig(env: Record<string, string | undefined>): GitHubAppConfig | undefined {
   const values = [env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY, env.GITHUB_APP_INSTALLATION_ID];
   if (values.every((value) => !value?.trim())) return undefined;
@@ -74,6 +103,10 @@ function parseGitHubConfig(env: Record<string, string | undefined>): GitHubAppCo
     installationId: required(env, "GITHUB_APP_INSTALLATION_ID"),
     apiUrl: (env.GITHUB_API_URL ?? "https://api.github.com").replace(/\/$/, ""),
   };
+}
+
+function parseScopes(value: string | undefined): string[] {
+  return (value ?? "codem:read codem:execute").split(/[ ,]+/).filter(Boolean);
 }
 
 export function loadCodeMConfig(
@@ -89,21 +122,38 @@ export function loadCodeMConfig(
     github: parseGitHubConfig(env),
   };
 
-  if (transport === "stdio") {
-    return { transport, ...base };
+  if (transport === "stdio") return { transport, ...base };
+
+  const publicUrl = parsePublicUrl(required(env, "CODEM_PUBLIC_URL"));
+  const secretKey = required(env, "CODEM_SECRET_KEY");
+  if (secretKey.length < 24) throw new Error("CODEM_SECRET_KEY must be at least 24 characters.");
+
+  const dataDir = env.CODEM_DATA_DIR?.trim() || "/data";
+  const databaseUrl = env.CODEM_DATABASE_URL?.trim() || `file:${join(dataDir, "codem.sqlite")}`;
+  const provider = (env.CODEM_AUTH_PROVIDER?.trim() || "embedded") as CodeMAuthProvider;
+  if (provider !== "embedded" && provider !== "external-oidc") {
+    throw new Error("CODEM_AUTH_PROVIDER must be embedded or external-oidc.");
   }
 
-  const publicUrl = parseUrl(required(env, "CODEM_PUBLIC_URL"), "CODEM_PUBLIC_URL");
-  const issuer = parseUrl(required(env, "CODEM_AUTH_ISSUER"), "CODEM_AUTH_ISSUER");
-  const introspectionUrl = parseUrl(
-    required(env, "CODEM_AUTH_INTROSPECTION_URL"),
-    "CODEM_AUTH_INTROSPECTION_URL",
-  );
-  const allowedHosts = required(env, "CODEM_ALLOWED_HOSTS")
-    .split(",")
+  const scopes = parseScopes(env.CODEM_AUTH_SCOPES);
+  const auth: EmbeddedAuthConfig | ExternalAuthConfig =
+    provider === "embedded"
+      ? { provider, issuer: publicUrl, scopes }
+      : {
+          provider,
+          issuer: parseUrl(required(env, "CODEM_AUTH_ISSUER"), "CODEM_AUTH_ISSUER"),
+          introspectionUrl: parseUrl(
+            required(env, "CODEM_AUTH_INTROSPECTION_URL"),
+            "CODEM_AUTH_INTROSPECTION_URL",
+          ),
+          clientId: required(env, "CODEM_AUTH_CLIENT_ID"),
+          clientSecret: required(env, "CODEM_AUTH_CLIENT_SECRET"),
+          scopes,
+        };
+
+  const configuredHosts = env.CODEM_ALLOWED_HOSTS?.split(",")
     .map((host) => host.trim())
     .filter(Boolean);
-  if (allowedHosts.length === 0) throw new Error("CODEM_ALLOWED_HOSTS cannot be empty.");
 
   return {
     transport,
@@ -111,14 +161,12 @@ export function loadCodeMConfig(
     host: env.CODEM_HTTP_HOST ?? "0.0.0.0",
     port: parsePort(env.CODEM_HTTP_PORT),
     publicUrl,
-    allowedHosts,
-    auth: {
-      issuer,
-      introspectionUrl,
-      clientId: required(env, "CODEM_AUTH_CLIENT_ID"),
-      clientSecret: required(env, "CODEM_AUTH_CLIENT_SECRET"),
-      scopes: (env.CODEM_AUTH_SCOPES ?? "codem:read codem:execute").split(/[ ,]+/).filter(Boolean),
-    },
+    mcpUrl: new URL("/mcp", publicUrl),
+    allowedHosts: configuredHosts?.length ? configuredHosts : [publicUrl.host],
+    secretKey,
+    dataDir,
+    databaseUrl,
+    auth,
     allowRemoteTerminal: parseBoolean(env.CODEM_ALLOW_REMOTE_TERMINAL, false),
   };
 }
