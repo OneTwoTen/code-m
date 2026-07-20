@@ -2,11 +2,19 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ProcessRunner } from "@codem/core";
 import { CodeMError } from "@codem/core";
+import type { GitHubConnectionStatus } from "./github/github-app.ts";
 import { executeTerminal, readWorkspaceFile } from "./tool-handlers.ts";
+
+export interface GitHubConnectionProvider {
+  getConnectionStatus(): Promise<GitHubConnectionStatus>;
+}
 
 export interface CodeMServerDependencies {
   workspaceRoot: string;
   processRunner: ProcessRunner;
+  remoteMode?: boolean;
+  allowRemoteTerminal?: boolean;
+  github?: GitHubConnectionProvider;
 }
 
 function errorResult(error: unknown) {
@@ -23,11 +31,22 @@ function errorResult(error: unknown) {
   };
 }
 
+function requireScope(
+  dependencies: CodeMServerDependencies,
+  extra: { authInfo?: { scopes: string[] } },
+  scope: string,
+): void {
+  if (!dependencies.remoteMode) return;
+  if (!extra.authInfo?.scopes.includes(scope)) {
+    throw new Error(`Missing required scope: ${scope}`);
+  }
+}
+
 export function createCodeMServer(dependencies: CodeMServerDependencies): McpServer {
   const server = new McpServer(
     {
       name: "code-m",
-      version: "0.1.0",
+      version: "0.2.0",
     },
     {
       instructions:
@@ -40,31 +59,43 @@ export function createCodeMServer(dependencies: CodeMServerDependencies): McpSer
     {
       title: "CodeM system information",
       description:
-        "Return the CodeM MVP version, runtime, workspace, and available capability summary.",
+        "Return the CodeM version, runtime, workspace, and available capability summary.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
       },
     },
-    async () => ({
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify(
+    async (_input, extra) => {
+      try {
+        requireScope(dependencies, extra, "codem:read");
+        return {
+          content: [
             {
-              name: "code-m",
-              version: "0.1.0",
-              runtime: `Bun ${Bun.version}`,
-              workspaceRoot: dependencies.workspaceRoot,
-              capabilities: ["workspace.read_file", "terminal.exec"],
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  name: "code-m",
+                  version: "0.2.0",
+                  runtime: `Bun ${Bun.version}`,
+                  transport: dependencies.remoteMode ? "http" : "stdio",
+                  workspaceRoot: dependencies.workspaceRoot,
+                  capabilities: [
+                    "workspace.read_file",
+                    "terminal.exec",
+                    "github.connection_status",
+                  ],
+                },
+                null,
+                2,
+              ),
             },
-            null,
-            2,
-          ),
-        },
-      ],
-    }),
+          ],
+        };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
   );
 
   server.registerTool(
@@ -81,8 +112,9 @@ export function createCodeMServer(dependencies: CodeMServerDependencies): McpSer
         idempotentHint: true,
       },
     },
-    async ({ path, maxBytes }) => {
+    async ({ path, maxBytes }, extra) => {
       try {
+        requireScope(dependencies, extra, "codem:read");
         const result = await readWorkspaceFile(dependencies.workspaceRoot, path, maxBytes);
         return {
           content: [
@@ -91,6 +123,34 @@ export function createCodeMServer(dependencies: CodeMServerDependencies): McpSer
               text: JSON.stringify(result, null, 2),
             },
           ],
+        };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "github.connection_status",
+    {
+      title: "GitHub connection status",
+      description:
+        "Check whether the server-side GitHub App installation is configured, authenticated, and able to list repositories.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (_input, extra) => {
+      try {
+        requireScope(dependencies, extra, "codem:read");
+        const status = dependencies.github
+          ? await dependencies.github.getConnectionStatus()
+          : { configured: false, authenticated: false, reachable: false };
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
         };
       } catch (error) {
         return errorResult(error);
@@ -118,6 +178,10 @@ export function createCodeMServer(dependencies: CodeMServerDependencies): McpSer
     },
     async ({ command, args, cwd, timeoutMs }, extra) => {
       try {
+        requireScope(dependencies, extra, "codem:execute");
+        if (dependencies.remoteMode && !dependencies.allowRemoteTerminal) {
+          throw new Error("Remote terminal execution is disabled by server policy.");
+        }
         const result = await executeTerminal(
           dependencies.processRunner,
           dependencies.workspaceRoot,
