@@ -39,7 +39,8 @@ export function createCodeMServer(dependencies: CodeMServerDependencies): McpSer
     "system.info",
     {
       title: "CodeM system information",
-      description: "Return the CodeM MVP version, runtime, workspace, and available capability summary.",
+      description:
+        "Return the CodeM MVP version, runtime, workspace, and available capability summary.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,

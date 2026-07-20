@@ -61,10 +61,7 @@ export async function executeTerminal(
   }
 
   const cwd = await resolveWorkspacePath(workspaceRoot, input.cwd ?? ".");
-  const timeoutMs = Math.max(
-    1,
-    Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS),
-  );
+  const timeoutMs = Math.max(1, Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS));
 
   const environment: Record<string, string> = {};
   for (const name of ["PATH", "HOME", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL"]) {

@@ -28,11 +28,7 @@ export async function resolveWorkspacePath(
   const canonicalCandidate = await realpath(candidate);
   const relativePath = relative(canonicalRoot, canonicalCandidate);
 
-  if (
-    relativePath === ".." ||
-    relativePath.startsWith(`..${sep}`) ||
-    isAbsolute(relativePath)
-  ) {
+  if (relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
     throw new CodeMError("PATH_OUTSIDE_WORKSPACE", "Path is outside the authorized workspace.");
   }
 

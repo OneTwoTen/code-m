@@ -19,7 +19,9 @@ async function createConnectedClient() {
   await writeFile(join(workspace, "sample.txt"), "CodeM stdio works\n");
 
   const environment = Object.fromEntries(
-    Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
   );
   environment.CODEM_WORKSPACE_ROOT = workspace;
 
