@@ -1,53 +1,107 @@
 # CodeM
 
-CodeM is an MCP server for coding agents. It exposes focused tools for inspecting projects, reading and changing files, running terminal commands, interacting with Git, and executing quality checks.
+CodeM is an MCP server for coding agents. The current MVP proves a complete local workflow over stdio: discover tools, read a file inside an authorized workspace, and execute a bounded non-interactive process.
 
-The project is designed as a host-agnostic coding tool engine. MCP is the primary protocol adapter; ChatGPT Apps SDK integration is optional and isolated from the core.
-
-## Technology direction
+## MVP stack
 
 - TypeScript with strict mode
-- Bun as runtime, package manager, workspace manager, script runner, and initial test runner
+- Bun as runtime, package manager, workspace manager, and test runner
 - MCP TypeScript SDK v1.x
-- Zod for tool input and output contracts
-- Biome for formatting and linting
-- `Bun.spawn` behind a `ProcessRunner` port
-- `stdio` transport for local coding agents
-- Streamable HTTP transport for remote clients and ChatGPT
-- Container-backed execution for untrusted or remote terminal workloads
+- Zod for tool schemas
+- Biome as the only formatter and linter
+- `Bun.spawn` behind a portable `ProcessRunner` interface
+- MCP stdio transport
 
-## Architecture principles
+## Available MVP tools
 
-1. Core project and execution logic must not depend on ChatGPT or Bun-specific APIs.
-2. MCP handlers remain thin and delegate to application services.
-3. Every public tool performs one clear operation.
-4. Read, write, and execute capabilities are separated and authorized independently.
-5. Terminal execution is bounded by workspace, timeout, output, environment, and command policies.
-6. Large outputs are stored as resources or artifacts instead of being returned inline.
-7. The MVP is a modular monolith; distributed executors are introduced only when scaling requires them.
+| Tool | Purpose | Effect |
+|---|---|---|
+| `system.info` | Report CodeM version, runtime, workspace, and capabilities | Read-only |
+| `workspace.read_file` | Read a bounded UTF-8 file inside the workspace | Read-only |
+| `terminal.exec` | Run one executable with a separate argument array | Execute; may change files |
 
-## Proposed repository layout
+`terminal.exec` does not accept an opaque shell string. It enforces a workspace-relative working directory, timeout, output limits, and a reduced environment.
+
+## Requirements
+
+- Bun 1.3.3
+
+## Install
+
+```bash
+bun install
+```
+
+The first install creates `bun.lock`. Commit that lockfile before merging changes that add or update dependencies.
+
+## Verify
+
+```bash
+bun run check
+```
+
+This runs:
+
+```text
+Biome format check
+Biome lint
+TypeScript typecheck
+Bun tests, including an MCP stdio end-to-end test
+```
+
+To apply formatting:
+
+```bash
+bun run format
+```
+
+## Run the MCP server
+
+CodeM authorizes one workspace root. Set it explicitly when the MCP client is started from another directory:
+
+```bash
+CODEM_WORKSPACE_ROOT=/absolute/path/to/project bun run dev
+```
+
+The server communicates on stdout using MCP JSON-RPC. Diagnostics are written only to stderr.
+
+## Example MCP client configuration
+
+```json
+{
+  "mcpServers": {
+    "code-m": {
+      "command": "bun",
+      "args": ["run", "/absolute/path/to/code-m/apps/mcp-server/src/main.ts"],
+      "env": {
+        "CODEM_WORKSPACE_ROOT": "/absolute/path/to/project"
+      }
+    }
+  }
+}
+```
+
+Use absolute paths in host configuration. Tool arguments such as `path` and `cwd` remain relative to `CODEM_WORKSPACE_ROOT`.
+
+## Repository layout
 
 ```text
 code-m/
 ├── apps/
-│   ├── mcp-server/
-│   └── web/                       # optional ChatGPT widgets
+│   └── mcp-server/              # MCP composition root and tools
 ├── packages/
-│   ├── core/
-│   ├── tool-contracts/
-│   ├── tools/
-│   ├── policy/
-│   ├── adapters/
-│   ├── host-openai/
-│   ├── observability/
-│   └── testkit/
+│   ├── core/                    # portable contracts and workspace policy
+│   └── adapters/                # Bun process adapter
 ├── tests/
-│   ├── contract/
-│   ├── integration/
-│   ├── e2e/
-│   └── security/
+│   └── e2e/                     # real stdio client/server test
 └── docs/
+    ├── architecture.md
+    ├── tool-catalog.md
+    ├── terminal-executor.md
+    ├── security-model.md
+    ├── roadmap.md
+    ├── adr/
+    └── superpowers/plans/
 ```
 
 ## Documentation
@@ -56,22 +110,11 @@ code-m/
 - [Tool catalog](docs/tool-catalog.md)
 - [Terminal executor](docs/terminal-executor.md)
 - [Security model](docs/security-model.md)
-- [Delivery roadmap](docs/roadmap.md)
+- [MVP roadmap](docs/roadmap.md)
+- [MVP implementation plan](docs/superpowers/plans/2026-07-20-codem-mvp.md)
 - [ADR 0001: Bun and TypeScript](docs/adr/0001-bun-typescript.md)
 - [ADR 0002: Modular monolith](docs/adr/0002-modular-monolith.md)
 
-## Initial delivery target
+## MVP boundary
 
-The first usable release should provide:
-
-- project inspection
-- bounded file listing and reading
-- text search
-- patch application
-- Git status and diff
-- non-interactive terminal execution
-- test and lint wrappers
-- `stdio` and Streamable HTTP transports
-- contract, integration, security, and end-to-end tests
-
-Interactive PTY sessions, widgets, OAuth, and distributed execution are later phases.
+This branch is a local feasibility release. It does not yet include Streamable HTTP, OAuth, persistent PTY sessions, container sandboxing, patch application, or Git mutation tools. Remote terminal execution must not be enabled until a sandbox executor and authentication layer are implemented.
