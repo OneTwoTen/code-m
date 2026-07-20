@@ -105,7 +105,9 @@ const migrations = [
 
 function sqlitePath(databaseUrl: string): string {
   if (!databaseUrl.startsWith("file:")) {
-    throw new Error("Only SQLite file: URLs are implemented. PostgreSQL is an optional future adapter.");
+    throw new Error(
+      "Only SQLite file: URLs are implemented. PostgreSQL is an optional future adapter.",
+    );
   }
   const path = databaseUrl.slice("file:".length);
   if (!path) throw new Error("CODEM_DATABASE_URL must include a SQLite file path.");

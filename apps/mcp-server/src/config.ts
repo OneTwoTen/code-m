@@ -87,7 +87,9 @@ function parsePublicUrl(value: string): URL {
     throw new Error("CODEM_PUBLIC_URL must use HTTPS outside localhost.");
   }
   if (url.username || url.password || url.search || url.hash) {
-    throw new Error("CODEM_PUBLIC_URL must not contain credentials, query parameters, or fragments.");
+    throw new Error(
+      "CODEM_PUBLIC_URL must not contain credentials, query parameters, or fragments.",
+    );
   }
   url.pathname = url.pathname.replace(/\/$/, "") || "/";
   return url;

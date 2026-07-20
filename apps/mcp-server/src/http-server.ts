@@ -36,7 +36,9 @@ export function createHttpHandler(
     config.auth.provider === "embedded"
       ? new EmbeddedAuthorizationServer({
           database: dependencies.database,
-          config: config as CodeMHttpConfig & { auth: Extract<CodeMHttpConfig["auth"], { provider: "embedded" }> },
+          config: config as CodeMHttpConfig & {
+            auth: Extract<CodeMHttpConfig["auth"], { provider: "embedded" }>;
+          },
         })
       : undefined;
   const external =

@@ -42,10 +42,17 @@ function parseCookies(request: Request): Record<string, string> {
 }
 
 function html(body: string, status = 200, headers?: HeadersInit): Response {
-  return new Response(`<!doctype html><html><head><meta charset="utf-8"><title>CodeM</title></head><body>${body}</body></html>`, {
-    status,
-    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...headers },
-  });
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><title>CodeM</title></head><body>${body}</body></html>`,
+    {
+      status,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        ...headers,
+      },
+    },
+  );
 }
 
 function json(value: unknown, status = 200, headers?: HeadersInit): Response {
@@ -99,16 +106,14 @@ export class EmbeddedAuthorizationServer {
       .query(
         "SELECT client_id, user_id, resource, scopes, expires_at, revoked_at FROM access_tokens WHERE token_hash = ?",
       )
-      .get(sha256(token)) as
-      | {
-          client_id: string;
-          user_id: string;
-          resource: string;
-          scopes: string;
-          expires_at: string;
-          revoked_at: string | null;
-        }
-      | null;
+      .get(sha256(token)) as {
+      client_id: string;
+      user_id: string;
+      resource: string;
+      scopes: string;
+      expires_at: string;
+      revoked_at: string | null;
+    } | null;
 
     if (!row || row.revoked_at || Date.parse(row.expires_at) <= Date.now()) {
       throw new UnauthorizedError("Access token is inactive.");
@@ -146,7 +151,9 @@ export class EmbeddedAuthorizationServer {
     const existing = this.#database.query("SELECT id FROM users LIMIT 1").get();
     if (request.method === "GET") {
       if (existing) return html(`<h1>CodeM is configured</h1><p><a href="/login">Sign in</a></p>`);
-      return html(`<h1>Set up CodeM</h1><form method="post"><label>Username <input name="username" required></label><br><label>Password <input name="password" type="password" minlength="12" required></label><br><button type="submit">Create administrator</button></form>`);
+      return html(
+        `<h1>Set up CodeM</h1><form method="post"><label>Username <input name="username" required></label><br><label>Password <input name="password" type="password" minlength="12" required></label><br><button type="submit">Create administrator</button></form>`,
+      );
     }
     if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
     if (existing) return json({ error: "already_configured" }, 409);
@@ -167,7 +174,9 @@ export class EmbeddedAuthorizationServer {
   async #login(request: Request): Promise<Response> {
     if (request.method === "GET") {
       const next = new URL(request.url).searchParams.get("next") ?? "/setup";
-      return html(`<h1>Sign in to CodeM</h1><form method="post"><input type="hidden" name="next" value="${encodeURIComponent(next)}"><label>Username <input name="username" required></label><br><label>Password <input name="password" type="password" required></label><br><button type="submit">Sign in</button></form>`);
+      return html(
+        `<h1>Sign in to CodeM</h1><form method="post"><input type="hidden" name="next" value="${encodeURIComponent(next)}"><label>Username <input name="username" required></label><br><label>Password <input name="password" type="password" required></label><br><button type="submit">Sign in</button></form>`,
+      );
     }
     if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
     const form = await request.formData();
@@ -180,12 +189,15 @@ export class EmbeddedAuthorizationServer {
       return html("<h1>Invalid credentials</h1>", 401);
     }
     const session = randomToken();
-    this.#database.run("INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)", [
-      sha256(session),
-      row.id,
-      new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      new Date().toISOString(),
-    ]);
+    this.#database.run(
+      "INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
+      [
+        sha256(session),
+        row.id,
+        new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        new Date().toISOString(),
+      ],
+    );
     const nextValue = form.get("next");
     const next = typeof nextValue === "string" && nextValue.startsWith("/") ? nextValue : "/setup";
     return new Response(null, {
@@ -251,7 +263,10 @@ export class EmbeddedAuthorizationServer {
     const scope = url.searchParams.get("scope") ?? "";
     const state = url.searchParams.get("state");
     const codeChallenge = url.searchParams.get("code_challenge") ?? "";
-    if (url.searchParams.get("response_type") !== "code" || url.searchParams.get("code_challenge_method") !== "S256") {
+    if (
+      url.searchParams.get("response_type") !== "code" ||
+      url.searchParams.get("code_challenge_method") !== "S256"
+    ) {
       return json({ error: "invalid_request" }, 400);
     }
     const client = this.#database
@@ -276,7 +291,10 @@ export class EmbeddedAuthorizationServer {
       : null;
     if (!user) {
       const next = `${url.pathname}${url.search}`;
-      return Response.redirect(new URL(`/login?next=${encodeURIComponent(next)}`, this.#config.publicUrl), 303);
+      return Response.redirect(
+        new URL(`/login?next=${encodeURIComponent(next)}`, this.#config.publicUrl),
+        303,
+      );
     }
 
     const code = randomToken();
@@ -343,18 +361,16 @@ export class EmbeddedAuthorizationServer {
       .query(
         "SELECT client_id, user_id, redirect_uri, resource, scopes, code_challenge, expires_at, consumed_at FROM authorization_codes WHERE code_hash = ?",
       )
-      .get(sha256(code)) as
-      | {
-          client_id: string;
-          user_id: string;
-          redirect_uri: string;
-          resource: string;
-          scopes: string;
-          code_challenge: string;
-          expires_at: string;
-          consumed_at: string | null;
-        }
-      | null;
+      .get(sha256(code)) as {
+      client_id: string;
+      user_id: string;
+      redirect_uri: string;
+      resource: string;
+      scopes: string;
+      code_challenge: string;
+      expires_at: string;
+      consumed_at: string | null;
+    } | null;
     const actualChallenge = challenge(verifier);
     const challengeMatches =
       row &&
@@ -385,17 +401,20 @@ export class EmbeddedAuthorizationServer {
       .query(
         "SELECT client_id, user_id, resource, scopes, expires_at, revoked_at FROM refresh_tokens WHERE token_hash = ?",
       )
-      .get(hash) as
-      | {
-          client_id: string;
-          user_id: string;
-          resource: string;
-          scopes: string;
-          expires_at: string;
-          revoked_at: string | null;
-        }
-      | null;
-    if (!row || row.client_id !== clientId || row.revoked_at || Date.parse(row.expires_at) <= Date.now()) {
+      .get(hash) as {
+      client_id: string;
+      user_id: string;
+      resource: string;
+      scopes: string;
+      expires_at: string;
+      revoked_at: string | null;
+    } | null;
+    if (
+      !row ||
+      row.client_id !== clientId ||
+      row.revoked_at ||
+      Date.parse(row.expires_at) <= Date.now()
+    ) {
       return json({ error: "invalid_grant" }, 400);
     }
     this.#database.run("UPDATE refresh_tokens SET revoked_at = ? WHERE token_hash = ?", [

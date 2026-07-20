@@ -48,7 +48,9 @@ describe("openCodeMDatabase", () => {
 
     const second = await openCodeMDatabase(databaseUrl, dataDir);
     try {
-      const user = second.database.query("SELECT username FROM users WHERE id = ?").get("user_1") as {
+      const user = second.database
+        .query("SELECT username FROM users WHERE id = ?")
+        .get("user_1") as {
         username: string;
       };
       expect(user.username).toBe("admin");
