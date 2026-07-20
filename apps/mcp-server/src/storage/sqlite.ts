@@ -101,6 +101,22 @@ const migrations = [
       );
     `,
   },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE IF NOT EXISTS github_setup_states (
+        state_hash TEXT PRIMARY KEY,
+        session_hash TEXT NOT NULL,
+        purpose TEXT NOT NULL CHECK (purpose IN ('manifest', 'install')),
+        expires_at TEXT NOT NULL,
+        consumed_at TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_github_setup_states_expiry
+        ON github_setup_states(expires_at);
+    `,
+  },
 ] as const;
 
 function sqlitePath(databaseUrl: string): string {
