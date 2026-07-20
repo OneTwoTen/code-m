@@ -11,16 +11,6 @@ export interface StoredGitHubConfig extends GitHubAppConfig {
   webhookSecret?: string;
 }
 
-interface PersistedGitHubConfig {
-  appId: string;
-  privateKey: string;
-  installationId: string;
-  apiUrl: string;
-  clientId?: string;
-  clientSecret?: string;
-  webhookSecret?: string;
-}
-
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -38,14 +28,19 @@ export class GitHubConfigStore {
     this.#box = new SecretBox(secretKey);
   }
 
-  load(): StoredGitHubConfig | undefined {
+  loadPending(): StoredGitHubConfig | undefined {
     const row = this.#database.query("SELECT encrypted_value FROM settings WHERE key = ?").get(CONFIG_KEY) as
       | { encrypted_value: string }
       | null;
     if (!row) return undefined;
-    const value = JSON.parse(this.#box.decrypt(row.encrypted_value)) as PersistedGitHubConfig;
-    if (!value.appId || !value.privateKey || !value.installationId || !value.apiUrl) return undefined;
+    const value = JSON.parse(this.#box.decrypt(row.encrypted_value)) as StoredGitHubConfig;
+    if (!value.appId || !value.privateKey || !value.apiUrl) return undefined;
     return value;
+  }
+
+  load(): StoredGitHubConfig | undefined {
+    const value = this.loadPending();
+    return value?.installationId ? value : undefined;
   }
 
   save(config: StoredGitHubConfig): void {
