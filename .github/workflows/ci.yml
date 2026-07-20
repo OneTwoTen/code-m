@@ -30,7 +30,15 @@ jobs:
         run: bun run lint
 
       - name: Typecheck
-        run: bun run typecheck
+        id: typecheck
+        run: bun run typecheck 2>&1 | tee typecheck.log
+
+      - name: Upload typecheck log
+        if: failure() && steps.typecheck.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: typecheck-log
+          path: typecheck.log
 
       - name: Test
         run: bun run test
