@@ -11,6 +11,7 @@ CodeM is an MCP server for coding agents. The current MVP proves a complete loca
 - Biome as the only formatter and linter
 - `Bun.spawn` behind a portable `ProcessRunner` interface
 - MCP stdio transport
+- Docker image for isolated local execution
 
 ## Available MVP tools
 
@@ -24,15 +25,34 @@ CodeM is an MCP server for coding agents. The current MVP proves a complete loca
 
 ## Requirements
 
-- Bun 1.3.3
+- Bun 1.3.3 for local development
+- Docker for container execution
 
 ## Install
 
 ```bash
-bun install
+bun install --frozen-lockfile
 ```
 
-The first install creates `bun.lock`. Commit that lockfile before merging changes that add or update dependencies.
+## Environment configuration
+
+Copy the example file for local development:
+
+```bash
+cp .env.example .env
+```
+
+The MVP currently reads one environment variable:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CODEM_WORKSPACE_ROOT` | Current process directory | Absolute or relative path CodeM is allowed to access |
+
+For a coding project outside this repository, set an absolute path:
+
+```env
+CODEM_WORKSPACE_ROOT=/absolute/path/to/project
+```
 
 ## Verify
 
@@ -55,17 +75,47 @@ To apply formatting:
 bun run format
 ```
 
-## Run the MCP server
-
-CodeM authorizes one workspace root. Set it explicitly when the MCP client is started from another directory:
+## Run locally
 
 ```bash
 CODEM_WORKSPACE_ROOT=/absolute/path/to/project bun run dev
 ```
 
+Bun also loads `.env` automatically when the server starts from the repository root.
+
 The server communicates on stdout using MCP JSON-RPC. Diagnostics are written only to stderr.
 
+## Run with Docker
+
+Build the image:
+
+```bash
+docker build -t codem-mcp .
+```
+
+Run the stdio server and mount the authorized project at `/workspace`:
+
+```bash
+docker run --rm -i \
+  -e CODEM_WORKSPACE_ROOT=/workspace \
+  -v /absolute/path/to/project:/workspace \
+  codem-mcp
+```
+
+The image runs as the unprivileged `bun` user. No network port is exposed because the MVP uses stdio. Commands invoked through `terminal.exec` run inside the container, not on the Docker host.
+
+Use a read-only volume while testing read-only tools:
+
+```bash
+docker run --rm -i \
+  -e CODEM_WORKSPACE_ROOT=/workspace \
+  -v /absolute/path/to/project:/workspace:ro \
+  codem-mcp
+```
+
 ## Example MCP client configuration
+
+### Local Bun process
 
 ```json
 {
@@ -76,6 +126,28 @@ The server communicates on stdout using MCP JSON-RPC. Diagnostics are written on
       "env": {
         "CODEM_WORKSPACE_ROOT": "/absolute/path/to/project"
       }
+    }
+  }
+}
+```
+
+### Docker process
+
+```json
+{
+  "mcpServers": {
+    "code-m": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "-e",
+        "CODEM_WORKSPACE_ROOT=/workspace",
+        "-v",
+        "/absolute/path/to/project:/workspace",
+        "codem-mcp"
+      ]
     }
   }
 }
@@ -94,6 +166,9 @@ code-m/
 │   └── adapters/                # Bun process adapter
 ├── tests/
 │   └── e2e/                     # real stdio client/server test
+├── Dockerfile
+├── .dockerignore
+├── .env.example
 └── docs/
     ├── architecture.md
     ├── tool-catalog.md
@@ -117,4 +192,4 @@ code-m/
 
 ## MVP boundary
 
-This branch is a local feasibility release. It does not yet include Streamable HTTP, OAuth, persistent PTY sessions, container sandboxing, patch application, or Git mutation tools. Remote terminal execution must not be enabled until a sandbox executor and authentication layer are implemented.
+This branch is a local feasibility release. It does not yet include Streamable HTTP, OAuth, persistent PTY sessions, patch application, or Git mutation tools. The Docker image reduces host exposure but is not yet a hardened multi-tenant sandbox. Remote terminal execution must not be enabled until authentication, authorization, resource limits, and a dedicated sandbox executor are implemented.
