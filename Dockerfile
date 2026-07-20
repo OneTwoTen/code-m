@@ -13,11 +13,15 @@ COPY apps ./apps
 COPY packages ./packages
 
 ENV CODEM_WORKSPACE_ROOT=/workspace
+ENV CODEM_DATA_DIR=/data
+ENV CODEM_HTTP_PORT=3000
 
-RUN mkdir -p /workspace && chown -R bun:bun /app /workspace
+RUN mkdir -p /workspace /data \
+  && chown -R bun:bun /app /workspace /data
 
 USER bun
 
-VOLUME ["/workspace"]
+VOLUME ["/data", "/workspace"]
+EXPOSE 3000
 
 ENTRYPOINT ["bun", "run", "apps/mcp-server/src/main.ts"]
