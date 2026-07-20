@@ -10,12 +10,14 @@ import {
 import type { CodeMHttpConfig, ExternalAuthConfig } from "./config.ts";
 import { createCodeMServer } from "./create-server.ts";
 import type { GitHubConnectionProvider } from "./create-server.ts";
+import type { GitHubSetupController } from "./github/github-setup-controller.ts";
 
 export interface HttpServerDependencies {
   workspaceRoot: string;
   processRunner: ProcessRunner;
   database: Database;
   github?: GitHubConnectionProvider;
+  githubSetup?: GitHubSetupController;
 }
 
 function json(value: unknown, status = 200, headers?: HeadersInit): Response {
@@ -70,6 +72,9 @@ export function createHttpHandler(
     if (request.method === "GET" && url.pathname === "/.well-known/oauth-protected-resource") {
       return json(metadata);
     }
+
+    const githubSetupResponse = await dependencies.githubSetup?.handle(request);
+    if (githubSetupResponse) return githubSetupResponse;
 
     const authResponse = await embedded?.handle(request);
     if (authResponse) return authResponse;
