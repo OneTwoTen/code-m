@@ -52,10 +52,7 @@ export function createHttpHandler(
       return json({ status: "ok", transport: "http" });
     }
 
-    if (
-      request.method === "GET" &&
-      url.pathname === "/.well-known/oauth-protected-resource"
-    ) {
+    if (request.method === "GET" && url.pathname === "/.well-known/oauth-protected-resource") {
       return json(metadata);
     }
 
@@ -84,11 +81,9 @@ export function createHttpHandler(
       return await transport.handleRequest(request, { authInfo });
     } catch (error) {
       if (error instanceof UnauthorizedError) {
-        return json(
-          { error: "unauthorized", message: error.message },
-          401,
-          { "www-authenticate": createBearerChallenge(config.publicUrl) },
-        );
+        return json({ error: "unauthorized", message: error.message }, 401, {
+          "www-authenticate": createBearerChallenge(config.publicUrl),
+        });
       }
       const message = error instanceof Error ? error.message : "Internal server error.";
       console.error(`CodeM HTTP request failed: ${message}`);

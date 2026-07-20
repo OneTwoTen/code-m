@@ -51,9 +51,7 @@ export function createGitHubAppJwt(config: GitHubAppConfig, now = Date.now()): s
   const issuedAt = Math.floor(now / 1000) - 60;
   const expiresAt = issuedAt + 9 * 60;
   const header = base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const payload = base64Url(
-    JSON.stringify({ iat: issuedAt, exp: expiresAt, iss: config.appId }),
-  );
+  const payload = base64Url(JSON.stringify({ iat: issuedAt, exp: expiresAt, iss: config.appId }));
   const unsigned = `${header}.${payload}`;
   const signer = createSign("RSA-SHA256");
   signer.update(unsigned);
@@ -87,7 +85,8 @@ export class GitHubAppClient {
         },
       },
     );
-    if (!response.ok) throw new Error(`GitHub installation token request failed (${response.status}).`);
+    if (!response.ok)
+      throw new Error(`GitHub installation token request failed (${response.status}).`);
 
     const result = (await response.json()) as InstallationTokenResponse;
     this.#cached = {
@@ -102,13 +101,16 @@ export class GitHubAppClient {
   async getConnectionStatus(): Promise<GitHubConnectionStatus> {
     try {
       const installation = await this.#installationToken();
-      const response = await this.#fetch(`${this.#config.apiUrl}/installation/repositories?per_page=20`, {
-        headers: {
-          accept: "application/vnd.github+json",
-          authorization: `Bearer ${installation.token}`,
-          "x-github-api-version": "2026-03-10",
+      const response = await this.#fetch(
+        `${this.#config.apiUrl}/installation/repositories?per_page=20`,
+        {
+          headers: {
+            accept: "application/vnd.github+json",
+            authorization: `Bearer ${installation.token}`,
+            "x-github-api-version": "2026-03-10",
+          },
         },
-      });
+      );
       if (!response.ok) throw new Error(`GitHub repository request failed (${response.status}).`);
 
       const result = (await response.json()) as InstallationRepositoriesResponse;

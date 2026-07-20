@@ -65,11 +65,7 @@ function parseUrl(value: string, name: string): URL {
 }
 
 function parseGitHubConfig(env: Record<string, string | undefined>): GitHubAppConfig | undefined {
-  const values = [
-    env.GITHUB_APP_ID,
-    env.GITHUB_APP_PRIVATE_KEY,
-    env.GITHUB_APP_INSTALLATION_ID,
-  ];
+  const values = [env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY, env.GITHUB_APP_INSTALLATION_ID];
   if (values.every((value) => !value?.trim())) return undefined;
 
   return {
@@ -121,9 +117,7 @@ export function loadCodeMConfig(
       introspectionUrl,
       clientId: required(env, "CODEM_AUTH_CLIENT_ID"),
       clientSecret: required(env, "CODEM_AUTH_CLIENT_SECRET"),
-      scopes: (env.CODEM_AUTH_SCOPES ?? "codem:read codem:execute")
-        .split(/[ ,]+/)
-        .filter(Boolean),
+      scopes: (env.CODEM_AUTH_SCOPES ?? "codem:read codem:execute").split(/[ ,]+/).filter(Boolean),
     },
     allowRemoteTerminal: parseBoolean(env.CODEM_ALLOW_REMOTE_TERMINAL, false),
   };
