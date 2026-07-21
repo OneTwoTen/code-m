@@ -45,7 +45,10 @@ async function setupTokenMatches(request: Request): Promise<boolean> {
   if (url.searchParams.get("setup_token") === expected) return true;
 
   if (request.method === "POST") {
-    const form = await request.clone().formData().catch(() => undefined);
+    const form = await request
+      .clone()
+      .formData()
+      .catch(() => undefined);
     return form?.get("setup_token") === expected;
   }
   return false;
@@ -67,24 +70,21 @@ async function validateEmbeddedRequest(request: Request): Promise<Response | und
   if (url.pathname === "/oauth/authorize") {
     const scopes = (url.searchParams.get("scope") ?? "").split(/\s+/).filter(Boolean);
     if (scopes.includes("codem:execute")) {
-      return json(
-        { error: "invalid_scope", message: "codem:execute is not grantable yet." },
-        400,
-      );
+      return json({ error: "invalid_scope", message: "codem:execute is not grantable yet." }, 400);
     }
   }
 
   if (url.pathname === "/oauth/register" && request.method === "POST") {
-    const payload = (await request.clone().json().catch(() => undefined)) as
-      | { redirect_uris?: unknown }
-      | undefined;
+    const payload = (await request
+      .clone()
+      .json()
+      .catch(() => undefined)) as { redirect_uris?: unknown } | undefined;
     const redirectUris = Array.isArray(payload?.redirect_uris) ? payload.redirect_uris : [];
     const valid = redirectUris.every((value) => {
       if (typeof value !== "string") return false;
       try {
         const redirect = new URL(value);
-        const loopback =
-          redirect.hostname === "localhost" || redirect.hostname === "127.0.0.1";
+        const loopback = redirect.hostname === "localhost" || redirect.hostname === "127.0.0.1";
         return redirect.protocol === "https:" || (loopback && redirect.protocol === "http:");
       } catch {
         return false;
@@ -108,7 +108,10 @@ async function normalizeEmbeddedResponse(
   }
 
   if (request.method === "POST" && new URL(request.url).pathname === "/login") {
-    const form = await request.clone().formData().catch(() => undefined);
+    const form = await request
+      .clone()
+      .formData()
+      .catch(() => undefined);
     const rawNext = form?.get("next");
     if (typeof rawNext === "string") {
       const decoded = decodeURIComponent(rawNext);
