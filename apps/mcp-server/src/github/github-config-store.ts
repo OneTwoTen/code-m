@@ -29,9 +29,9 @@ export class GitHubConfigStore {
   }
 
   loadPending(): StoredGitHubConfig | undefined {
-    const row = this.#database.query("SELECT encrypted_value FROM settings WHERE key = ?").get(CONFIG_KEY) as
-      | { encrypted_value: string }
-      | null;
+    const row = this.#database
+      .query("SELECT encrypted_value FROM settings WHERE key = ?")
+      .get(CONFIG_KEY) as { encrypted_value: string } | null;
     if (!row) return undefined;
     const value = JSON.parse(this.#box.decrypt(row.encrypted_value)) as StoredGitHubConfig;
     if (!value.appId || !value.privateKey || !value.apiUrl) return undefined;
@@ -55,7 +55,11 @@ export class GitHubConfigStore {
     this.#database.run("DELETE FROM settings WHERE key = ?", [CONFIG_KEY]);
   }
 
-  createState(sessionHash: string, purpose: "manifest" | "install", ttlMs = 10 * 60 * 1000): string {
+  createState(
+    sessionHash: string,
+    purpose: "manifest" | "install",
+    ttlMs = 10 * 60 * 1000,
+  ): string {
     const state = randomToken();
     this.#database.run(
       "INSERT INTO github_setup_states (state_hash, session_hash, purpose, expires_at, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -77,7 +81,9 @@ export class GitHubConfigStore {
         .query(
           "SELECT state_hash FROM github_setup_states WHERE state_hash = ? AND session_hash = ? AND purpose = ? AND consumed_at IS NULL AND expires_at > ?",
         )
-        .get(stateHash, sessionHash, purpose, new Date().toISOString()) as { state_hash: string } | null;
+        .get(stateHash, sessionHash, purpose, new Date().toISOString()) as {
+        state_hash: string;
+      } | null;
       if (!row) return false;
       this.#database.run("UPDATE github_setup_states SET consumed_at = ? WHERE state_hash = ?", [
         new Date().toISOString(),
