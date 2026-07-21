@@ -28,12 +28,7 @@ describe("fetchWithTimeout", () => {
     controller.abort(new Error("caller cancelled"));
 
     await expect(
-      fetchWithTimeout(
-        pendingFetch(),
-        "https://example.com",
-        { signal: controller.signal },
-        100,
-      ),
+      fetchWithTimeout(pendingFetch(), "https://example.com", { signal: controller.signal }, 100),
     ).rejects.toThrow("caller cancelled");
   });
 });
