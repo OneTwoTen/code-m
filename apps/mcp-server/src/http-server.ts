@@ -145,6 +145,7 @@ export function createHttpHandler(
           clientId: (config.auth as ExternalAuthConfig).clientId,
           clientSecret: (config.auth as ExternalAuthConfig).clientSecret,
           resource: config.mcpUrl,
+          timeoutMs: config.outboundHttpTimeoutMs,
         })
       : undefined;
   const metadata = createProtectedResourceMetadata({
