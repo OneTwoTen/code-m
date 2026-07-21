@@ -91,7 +91,9 @@ function parsePublicUrl(value: string): URL {
       "CODEM_PUBLIC_URL must not contain credentials, query parameters, or fragments.",
     );
   }
-  url.pathname = url.pathname.replace(/\/$/, "") || "/";
+  if (url.pathname !== "/") {
+    throw new Error("CODEM_PUBLIC_URL must not include a path; base paths are not supported.");
+  }
   return url;
 }
 
