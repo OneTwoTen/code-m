@@ -12,9 +12,7 @@ function context(signal = new AbortController().signal) {
   };
 }
 
-function request(
-  overrides: Partial<ProcessExecutionRequest> = {},
-): ProcessExecutionRequest {
+function request(overrides: Partial<ProcessExecutionRequest> = {}): ProcessExecutionRequest {
   return {
     command: process.execPath,
     args: ["-e", "console.log('codem-ok')"],
@@ -81,10 +79,7 @@ describe("BunProcessRunner", () => {
 
   test("rejects stdin larger than the configured byte limit", async () => {
     await expect(
-      runner.execute(
-        request({ stdin: "x".repeat(33), stdinLimitBytes: 32 }),
-        context(),
-      ),
+      runner.execute(request({ stdin: "x".repeat(33), stdinLimitBytes: 32 }), context()),
     ).rejects.toThrow("stdin exceeds the configured byte limit");
   });
 });
