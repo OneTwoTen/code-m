@@ -53,20 +53,37 @@ function stdinSize(value: string | undefined): number {
   return value === undefined ? 0 : new TextEncoder().encode(value).byteLength;
 }
 
+function cancelledResult(startedAt: number): ProcessExecutionResult {
+  return {
+    exitCode: null,
+    signal: null,
+    stdout: "",
+    stderr: "",
+    durationMs: performance.now() - startedAt,
+    timedOut: false,
+    cancelled: true,
+    stdoutTruncated: false,
+    stderrTruncated: false,
+  };
+}
+
 export class BunProcessRunner implements ProcessRunner {
   async execute(
     request: ProcessExecutionRequest,
     context: ExecutionContext,
   ): Promise<ProcessExecutionResult> {
+    const startedAt = performance.now();
+    if (context.signal.aborted) return cancelledResult(startedAt);
+
     if (stdinSize(request.stdin) > request.stdinLimitBytes) {
       throw new Error("Process stdin exceeds the configured byte limit.");
     }
 
-    const startedAt = performance.now();
     let timedOut = false;
     let cancelled = false;
     let terminationStarted = false;
     let escalation: ReturnType<typeof setTimeout> | undefined;
+    let terminationFinished: Promise<void> | undefined;
 
     const child = Bun.spawn({
       cmd: [request.command, ...request.args],
@@ -99,9 +116,12 @@ export class BunProcessRunner implements ProcessRunner {
       if (terminationStarted) return;
       terminationStarted = true;
       signalProcessTree("SIGTERM");
-      escalation = setTimeout(() => {
-        signalProcessTree("SIGKILL");
-      }, request.terminationGraceMs);
+      terminationFinished = new Promise((resolve) => {
+        escalation = setTimeout(() => {
+          signalProcessTree("SIGKILL");
+          resolve();
+        }, request.terminationGraceMs);
+      });
     };
 
     const timeout = setTimeout(() => {
@@ -115,30 +135,33 @@ export class BunProcessRunner implements ProcessRunner {
     };
 
     context.signal.addEventListener("abort", onAbort, { once: true });
-    if (context.signal.aborted) onAbort();
 
+    let output: [CollectedStream, CollectedStream, number] | undefined;
     try {
-      const [stdout, stderr, exitCode] = await Promise.all([
+      output = await Promise.all([
         collectStream(child.stdout, request.stdoutLimitBytes),
         collectStream(child.stderr, request.stderrLimitBytes),
         child.exited,
       ]);
-
-      return {
-        exitCode,
-        signal: null,
-        stdout: stdout.text,
-        stderr: stderr.text,
-        durationMs: performance.now() - startedAt,
-        timedOut,
-        cancelled,
-        stdoutTruncated: stdout.truncated,
-        stderrTruncated: stderr.truncated,
-      };
     } finally {
       clearTimeout(timeout);
-      if (escalation) clearTimeout(escalation);
       context.signal.removeEventListener("abort", onAbort);
+      if (terminationFinished) await terminationFinished;
+      if (escalation) clearTimeout(escalation);
     }
+
+    if (!output) throw new Error("Process execution did not produce a result.");
+    const [stdout, stderr, exitCode] = output;
+    return {
+      exitCode,
+      signal: null,
+      stdout: stdout.text,
+      stderr: stderr.text,
+      durationMs: performance.now() - startedAt,
+      timedOut,
+      cancelled,
+      stdoutTruncated: stdout.truncated,
+      stderrTruncated: stderr.truncated,
+    };
   }
 }
