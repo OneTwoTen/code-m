@@ -63,9 +63,7 @@ describe("HTTP production boundary", () => {
       bearer_methods_supported: ["header"],
     });
 
-    const authorizationMetadata = await handler(
-      request("/.well-known/oauth-authorization-server"),
-    );
+    const authorizationMetadata = await handler(request("/.well-known/oauth-authorization-server"));
     expect(authorizationMetadata.status).toBe(200);
     expect(await authorizationMetadata.json()).toMatchObject({
       issuer: config.publicUrl.href.replace(/\/$/, ""),
