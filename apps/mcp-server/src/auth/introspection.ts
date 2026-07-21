@@ -89,9 +89,9 @@ export class IntrospectionAccessTokenVerifier {
       token,
       clientId: result.client_id ?? result.sub ?? "unknown-client",
       scopes: result.scope?.split(/\s+/).filter(Boolean) ?? [],
-      expiresAt: result.exp,
       resource: this.#options.resource,
-      extra: result.sub ? { subject: result.sub } : undefined,
+      ...(result.exp === undefined ? {} : { expiresAt: result.exp }),
+      ...(result.sub ? { extra: { subject: result.sub } } : {}),
     };
   }
 }
