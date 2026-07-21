@@ -9,7 +9,8 @@ function pendingFetch(): typeof fetch {
         reject(new Error("expected an abort signal"));
         return;
       }
-      const rejectFromSignal = () => reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      const rejectFromSignal = () =>
+        reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
       if (signal.aborted) rejectFromSignal();
       else signal.addEventListener("abort", rejectFromSignal, { once: true });
     })) as typeof fetch;
@@ -27,7 +28,12 @@ describe("fetchWithTimeout", () => {
     controller.abort(new Error("caller cancelled"));
 
     await expect(
-      fetchWithTimeout(pendingFetch(), "https://example.com", { signal: controller.signal }, 100),
+      fetchWithTimeout(
+        pendingFetch(),
+        "https://example.com",
+        { signal: controller.signal },
+        100,
+      ),
     ).rejects.toThrow("caller cancelled");
   });
 });
