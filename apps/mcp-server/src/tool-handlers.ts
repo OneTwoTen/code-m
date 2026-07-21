@@ -18,9 +18,9 @@ export interface ReadWorkspaceFileResult {
 
 export interface TerminalExecInput {
   command: string;
-  args?: readonly string[];
-  cwd?: string;
-  timeoutMs?: number;
+  args?: readonly string[] | undefined;
+  cwd?: string | undefined;
+  timeoutMs?: number | undefined;
 }
 
 export async function readWorkspaceFile(
