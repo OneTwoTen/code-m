@@ -1,4 +1,8 @@
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import {
+  fetchWithTimeout,
+  OutboundHttpTimeoutError,
+} from "../http/fetch-with-timeout.ts";
 
 export class UnauthorizedError extends Error {
   constructor(message = "Authentication required.") {
@@ -13,6 +17,7 @@ export interface IntrospectionVerifierOptions {
   clientSecret: string;
   resource: URL;
   fetch?: typeof fetch;
+  timeoutMs?: number;
 }
 
 interface IntrospectionResponse {
@@ -39,7 +44,7 @@ function matchesResource(response: IntrospectionResponse, expected: URL): boolea
     ...(Array.isArray(response.aud) ? response.aud : response.aud ? [response.aud] : []),
     ...(response.resource ? [response.resource] : []),
   ].map((value) => value.replace(/\/$/, ""));
-  return values.length === 0 || values.includes(expectedValue);
+  return values.length > 0 && values.includes(expectedValue);
 }
 
 export class IntrospectionAccessTokenVerifier {
@@ -53,15 +58,28 @@ export class IntrospectionAccessTokenVerifier {
     const token = bearerToken(request);
     const body = new URLSearchParams({ token, resource: this.#options.resource.href });
     const basic = btoa(`${this.#options.clientId}:${this.#options.clientSecret}`);
-    const response = await (this.#options.fetch ?? fetch)(this.#options.introspectionUrl, {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        authorization: `Basic ${basic}`,
-        "content-type": "application/x-www-form-urlencoded",
-      },
-      body,
-    });
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(
+        this.#options.fetch ?? fetch,
+        this.#options.introspectionUrl,
+        {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            authorization: `Basic ${basic}`,
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body,
+        },
+        this.#options.timeoutMs ?? 10_000,
+      );
+    } catch (error) {
+      if (error instanceof OutboundHttpTimeoutError) {
+        throw new UnauthorizedError("Token verification timed out.");
+      }
+      throw new UnauthorizedError("Token verification failed.");
+    }
 
     if (!response.ok) throw new UnauthorizedError("Token verification failed.");
     const result = (await response.json()) as IntrospectionResponse;
