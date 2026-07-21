@@ -20,7 +20,12 @@ async function fixture() {
   );
   storage.database.run(
     "INSERT INTO oauth_clients (client_id, redirect_uris, client_name, created_at) VALUES (?, ?, ?, ?)",
-    ["client_1", JSON.stringify(["https://client.example/callback"]), "Test client", new Date().toISOString()],
+    [
+      "client_1",
+      JSON.stringify(["https://client.example/callback"]),
+      "Test client",
+      new Date().toISOString(),
+    ],
   );
   return { storage, store: new SQLiteOAuthStore(storage.database) };
 }
