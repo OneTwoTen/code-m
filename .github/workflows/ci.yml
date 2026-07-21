@@ -30,10 +30,32 @@ jobs:
         run: bun run lint
 
       - name: Typecheck
-        run: bun run typecheck
+        id: typecheck
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run typecheck 2>&1 | tee typecheck.log
+
+      - name: Upload typecheck log
+        if: failure() && steps.typecheck.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: typecheck-log
+          path: typecheck.log
 
       - name: Test
-        run: bun run test
+        id: test
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run test 2>&1 | tee test.log
+
+      - name: Upload test log
+        if: failure() && steps.test.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: test.log
 
       - name: Build Docker image
         run: docker build --tag codem-mcp:ci .
