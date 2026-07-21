@@ -150,8 +150,7 @@ export function loadCodeMConfig(
     throw new Error("CODEM_AUTH_PROVIDER must be embedded or external-oidc.");
   }
 
-  const defaultScopes =
-    provider === "embedded" ? ["codem:read"] : ["codem:read", "codem:execute"];
+  const defaultScopes = provider === "embedded" ? ["codem:read"] : ["codem:read", "codem:execute"];
   const scopes = parseScopes(env.CODEM_AUTH_SCOPES, defaultScopes);
   if (provider === "embedded" && scopes.includes("codem:execute")) {
     throw new Error("Embedded OAuth cannot grant codem:execute in this release.");
