@@ -120,8 +120,8 @@ function parseGitHubConfig(env: Record<string, string | undefined>): GitHubAppCo
   };
 }
 
-function parseScopes(value: string | undefined): string[] {
-  return (value ?? "codem:read codem:execute").split(/[ ,]+/).filter(Boolean);
+function parseScopes(value: string | undefined, defaults: readonly string[]): string[] {
+  return (value ?? defaults.join(" ")).split(/[ ,]+/).filter(Boolean);
 }
 
 export function loadCodeMConfig(
@@ -150,7 +150,13 @@ export function loadCodeMConfig(
     throw new Error("CODEM_AUTH_PROVIDER must be embedded or external-oidc.");
   }
 
-  const scopes = parseScopes(env.CODEM_AUTH_SCOPES);
+  const defaultScopes =
+    provider === "embedded" ? ["codem:read"] : ["codem:read", "codem:execute"];
+  const scopes = parseScopes(env.CODEM_AUTH_SCOPES, defaultScopes);
+  if (provider === "embedded" && scopes.includes("codem:execute")) {
+    throw new Error("Embedded OAuth cannot grant codem:execute in this release.");
+  }
+
   const auth: EmbeddedAuthConfig | ExternalAuthConfig =
     provider === "embedded"
       ? { provider, issuer: publicUrl, scopes }
