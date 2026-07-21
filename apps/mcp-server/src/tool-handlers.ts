@@ -40,10 +40,7 @@ export async function readWorkspaceFile(
     const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0);
     const accepted = buffer.subarray(0, Math.min(bytesRead, limit));
     if (accepted.includes(0)) {
-      throw new CodeMError(
-        "INVALID_INPUT",
-        "Binary files are not supported by this MVP tool.",
-      );
+      throw new CodeMError("INVALID_INPUT", "Binary files are not supported by this MVP tool.");
     }
 
     return {
