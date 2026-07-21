@@ -230,10 +230,7 @@ export class GitHubSetupController {
   async #installCallback(url: URL, sessionHash: string): Promise<Response> {
     const state = url.searchParams.get("state") ?? "";
     const installationId = url.searchParams.get("installation_id") ?? "";
-    if (
-      !/^\d+$/.test(installationId) ||
-      !this.#store.consumeState(state, sessionHash, "install")
-    ) {
+    if (!/^\d+$/.test(installationId) || !this.#store.consumeState(state, sessionHash, "install")) {
       return html("<h1>Invalid installation callback</h1>", 400);
     }
 
