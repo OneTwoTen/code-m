@@ -33,7 +33,9 @@ async function createConnectedClient() {
     ),
   );
   environment.CODEM_WORKSPACE_ROOT = workspace;
-  for (const key of GITHUB_ENVIRONMENT_KEYS) delete environment[key];
+  for (const key of GITHUB_ENVIRONMENT_KEYS) {
+    delete environment[key];
+  }
 
   const transport = new StdioClientTransport({
     command: process.execPath,
