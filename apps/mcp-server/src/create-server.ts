@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ProcessRunner } from "@codem/core";
 import { CodeMError } from "@codem/core";
+import { CODEM_APPLICATION, runtimeVersion } from "./application-metadata.ts";
 import type { GitHubConnectionStatus } from "./github/github-app.ts";
 import { executeTerminal, readWorkspaceFile } from "./tool-handlers.ts";
 
@@ -43,16 +44,10 @@ function requireScope(
 }
 
 export function createCodeMServer(dependencies: CodeMServerDependencies): McpServer {
-  const server = new McpServer(
-    {
-      name: "code-m",
-      version: "0.2.0",
-    },
-    {
-      instructions:
-        "Use workspace.read_file for bounded source reads. Use terminal.exec only for non-interactive commands and pass arguments separately from the executable.",
-    },
-  );
+  const server = new McpServer(CODEM_APPLICATION, {
+    instructions:
+      "Use workspace.read_file for bounded source reads. Use terminal.exec only for non-interactive commands and pass arguments separately from the executable.",
+  });
 
   server.registerTool(
     "system.info",
@@ -75,9 +70,8 @@ export function createCodeMServer(dependencies: CodeMServerDependencies): McpSer
               type: "text" as const,
               text: JSON.stringify(
                 {
-                  name: "code-m",
-                  version: "0.2.0",
-                  runtime: `Bun ${Bun.version}`,
+                  ...CODEM_APPLICATION,
+                  runtime: runtimeVersion(),
                   transport: dependencies.remoteMode ? "http" : "stdio",
                   workspaceRoot: dependencies.workspaceRoot,
                   capabilities: [
