@@ -17,10 +17,35 @@ describe("loadCodeMConfig", () => {
     expect(config.mcpUrl.href).toBe("https://codem.example.com/mcp");
     expect(config.auth.issuer.href).toBe("https://codem.example.com/");
     expect(config.auth.provider).toBe("embedded");
+    expect(config.auth.scopes).toEqual(["codem:read"]);
     expect(config.allowedHosts).toEqual(["codem.example.com"]);
     expect(config.dataDir).toBe("/data");
     expect(config.databaseUrl).toBe("file:/data/codem.sqlite");
     expect(config.outboundHttpTimeoutMs).toBe(10_000);
+  });
+
+  test("rejects execute scope for embedded OAuth", () => {
+    expect(() =>
+      loadCodeMConfig({
+        ...productionEnv,
+        CODEM_AUTH_SCOPES: "codem:read codem:execute",
+      }),
+    ).toThrow("Embedded OAuth cannot grant codem:execute");
+  });
+
+  test("keeps read and execute as external OIDC defaults", () => {
+    const config = loadCodeMConfig({
+      ...productionEnv,
+      CODEM_AUTH_PROVIDER: "external-oidc",
+      CODEM_AUTH_ISSUER: "https://auth.example.com",
+      CODEM_AUTH_INTROSPECTION_URL: "https://auth.example.com/introspect",
+      CODEM_AUTH_CLIENT_ID: "codem",
+      CODEM_AUTH_CLIENT_SECRET: "secret",
+    });
+    if (config.transport !== "http" || config.auth.provider !== "external-oidc") {
+      throw new Error("expected external HTTP config");
+    }
+    expect(config.auth.scopes).toEqual(["codem:read", "codem:execute"]);
   });
 
   test("derives the SQLite path from a custom data directory", () => {
