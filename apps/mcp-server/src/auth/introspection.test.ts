@@ -40,7 +40,7 @@ describe("IntrospectionAccessTokenVerifier", () => {
         active: true,
         client_id: "client",
         scope: "codem:read",
-      })) as typeof fetch);
+      })) as unknown as typeof fetch);
 
     await expect(instance.verify(authenticatedRequest())).rejects.toThrow(
       "Access token is not intended for this resource.",
@@ -54,7 +54,7 @@ describe("IntrospectionAccessTokenVerifier", () => {
         client_id: "client",
         scope: "codem:read",
         aud: [resource.href],
-      })) as typeof fetch);
+      })) as unknown as typeof fetch);
 
     const result = await instance.verify(authenticatedRequest());
     expect(result.clientId).toBe("client");
