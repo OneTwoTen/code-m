@@ -43,8 +43,9 @@ The resulting MCP endpoint is `https://codem.example.com/mcp`.
 ```bash
 docker build -t codem-mcp .
 
-docker run --rm \
+docker run -d \
   --name codem \
+  --restart unless-stopped \
   -p 3000:3000 \
   --env-file .env \
   -v codem-data:/data \
