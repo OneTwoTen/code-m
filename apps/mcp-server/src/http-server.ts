@@ -67,7 +67,10 @@ async function validateEmbeddedRequest(request: Request): Promise<Response | und
   if (url.pathname === "/oauth/authorize") {
     const scopes = (url.searchParams.get("scope") ?? "").split(/\s+/).filter(Boolean);
     if (scopes.includes("codem:execute")) {
-      return json({ error: "invalid_scope", message: "codem:execute is not grantable yet." }, 400);
+      return json(
+        { error: "invalid_scope", message: "codem:execute is not grantable yet." },
+        400,
+      );
     }
   }
 
@@ -80,7 +83,8 @@ async function validateEmbeddedRequest(request: Request): Promise<Response | und
       if (typeof value !== "string") return false;
       try {
         const redirect = new URL(value);
-        const loopback = redirect.hostname === "localhost" || redirect.hostname === "127.0.0.1";
+        const loopback =
+          redirect.hostname === "localhost" || redirect.hostname === "127.0.0.1";
         return redirect.protocol === "https:" || (loopback && redirect.protocol === "http:");
       } catch {
         return false;
@@ -108,7 +112,9 @@ async function normalizeEmbeddedResponse(
     const rawNext = form?.get("next");
     if (typeof rawNext === "string") {
       const decoded = decodeURIComponent(rawNext);
-      if (isSafeLocalPath(decoded)) headers.set("location", new URL(decoded, publicUrl).href);
+      if (isSafeLocalPath(decoded)) {
+        headers.set("location", new URL(decoded, publicUrl).href);
+      }
     }
   }
 
@@ -165,7 +171,9 @@ export function createHttpHandler(
       const rejected = await validateEmbeddedRequest(request);
       if (rejected) return rejected;
       const authResponse = await embedded.handle(request);
-      if (authResponse) return normalizeEmbeddedResponse(request, authResponse, config.publicUrl);
+      if (authResponse) {
+        return normalizeEmbeddedResponse(request, authResponse, config.publicUrl);
+      }
     }
 
     if (url.pathname !== "/mcp") return json({ error: "not_found" }, 404);
