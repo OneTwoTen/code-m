@@ -40,6 +40,9 @@ async function fixture() {
   if (config.transport !== "http" || config.auth.provider !== "embedded") {
     throw new Error("expected embedded HTTP config");
   }
+  const embeddedConfig = config as typeof config & {
+    auth: Extract<typeof config.auth, { provider: "embedded" }>;
+  };
   const storage = await openCodeMDatabase(config.databaseUrl, dataDir);
   const now = new Date().toISOString();
   storage.database.run(
@@ -57,7 +60,7 @@ async function fixture() {
   );
   const server = new EmbeddedAuthorizationServer({
     database: storage.database,
-    config,
+    config: embeddedConfig,
     store: new SQLiteOAuthStore(storage.database),
   });
   return { storage, server, session };
