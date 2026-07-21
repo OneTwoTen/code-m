@@ -48,12 +48,7 @@ async function fixture() {
   );
   storage.database.run(
     "INSERT INTO oauth_clients (client_id, redirect_uris, client_name, created_at) VALUES (?, ?, ?, ?)",
-    [
-      "client_1",
-      JSON.stringify(["http://127.0.0.1/callback"]),
-      "Coding Agent",
-      now,
-    ],
+    ["client_1", JSON.stringify(["http://127.0.0.1/callback"]), "Coding Agent", now],
   );
   const session = "session-token";
   storage.database.run(
@@ -153,9 +148,8 @@ describe("embedded OAuth integration", () => {
         }),
       );
       expect(rotated?.status).toBe(200);
-      expect((await rotated?.json()) as { refresh_token: string }).not.toEqual({
-        refresh_token: pair.refresh_token,
-      });
+      const rotatedPair = (await rotated?.json()) as { refresh_token: string };
+      expect(rotatedPair.refresh_token).not.toBe(pair.refresh_token);
 
       const reusedGrant = await server.handle(
         new Request(authorizationUrl, { headers: { cookie: `codem_session=${session}` } }),
