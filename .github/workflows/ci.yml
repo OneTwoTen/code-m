@@ -24,18 +24,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Check formatting
-        id: format
-        run: |
-          bun run format
-          git diff -- tests/e2e/stdio.test.ts > format.patch
-          test ! -s format.patch
-
-      - name: Upload formatting diagnostics
-        if: failure() && steps.format.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: format-diagnostics
-          path: format.patch
+        run: bun run format:check
 
       - name: Lint
         run: bun run lint
