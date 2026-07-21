@@ -23,6 +23,18 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Format review diagnostics
+        run: bun run format
+
+      - name: Upload formatted review files
+        uses: actions/upload-artifact@v4
+        with:
+          name: formatted-review-files
+          path: |
+            packages/adapters/src/bun-process-runner.test.ts
+            apps/mcp-server/src/config.test.ts
+            tests/e2e/http.test.ts
+
       - name: Check formatting
         run: bun run format:check
 
