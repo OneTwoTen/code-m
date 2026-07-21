@@ -34,7 +34,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: formatter-patch
-          path: formatter.patch
+          path: |
+            formatter.patch
+            apps/mcp-server/src/auth/embedded.ts
+            apps/mcp-server/src/auth/embedded.integration.test.ts
 
       - name: Lint
         run: bun run lint
