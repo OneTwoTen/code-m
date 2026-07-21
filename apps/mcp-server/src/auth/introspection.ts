@@ -1,8 +1,5 @@
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
-import {
-  fetchWithTimeout,
-  OutboundHttpTimeoutError,
-} from "../http/fetch-with-timeout.ts";
+import { fetchWithTimeout, OutboundHttpTimeoutError } from "../http/fetch-with-timeout.ts";
 
 export class UnauthorizedError extends Error {
   constructor(message = "Authentication required.") {
