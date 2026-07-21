@@ -73,8 +73,9 @@ openssl rand -base64 32   # CODEM_SETUP_TOKEN
 Run CodeM behind an HTTPS reverse proxy:
 
 ```bash
-docker run --rm \
+docker run -d \
   --name codem \
+  --restart unless-stopped \
   -p 3000:3000 \
   -e CODEM_TRANSPORT=http \
   -e CODEM_PUBLIC_URL=https://codem.example.com \
