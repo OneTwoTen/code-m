@@ -26,7 +26,8 @@ function pendingFetch(): typeof fetch {
         reject(new Error("expected an abort signal"));
         return;
       }
-      const rejectFromSignal = () => reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      const rejectFromSignal = () =>
+        reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
       if (signal.aborted) rejectFromSignal();
       else signal.addEventListener("abort", rejectFromSignal, { once: true });
     })) as typeof fetch;
@@ -35,7 +36,12 @@ function pendingFetch(): typeof fetch {
 describe("IntrospectionAccessTokenVerifier", () => {
   test("rejects active tokens without an audience or resource claim", async () => {
     const instance = verifier(
-      (async () => Response.json({ active: true, client_id: "client", scope: "codem:read" })) as typeof fetch,
+      (async () =>
+        Response.json({
+          active: true,
+          client_id: "client",
+          scope: "codem:read",
+        })) as typeof fetch,
     );
 
     await expect(instance.verify(authenticatedRequest())).rejects.toThrow(
