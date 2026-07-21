@@ -19,7 +19,11 @@ async function main(): Promise<void> {
   if (config.transport === "http") {
     const storage = await openCodeMDatabase(config.databaseUrl, config.dataDir);
     const githubStore = new GitHubConfigStore(storage.database, config.secretKey);
-    const github = new DatabaseBackedGitHubProvider(config.github, githubStore);
+    const github = new DatabaseBackedGitHubProvider(
+      config.github,
+      githubStore,
+      config.outboundHttpTimeoutMs,
+    );
     const githubSetup = new GitHubSetupController(storage.database, config, githubStore, github);
     const httpServer = startHttpServer(config, {
       workspaceRoot,
