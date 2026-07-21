@@ -390,12 +390,7 @@ export class EmbeddedAuthorizationServer {
       ...(parsed.state ? { state: parsed.state } : {}),
     };
     if (
-      this.#store.hasGrant(
-        user.userId,
-        parsed.clientId,
-        parsed.resource,
-        parsed.requestedScopes,
-      )
+      this.#store.hasGrant(user.userId, parsed.clientId, parsed.resource, parsed.requestedScopes)
     ) {
       return this.#issueAuthorizationCode(pending);
     }
@@ -442,12 +437,7 @@ export class EmbeddedAuthorizationServer {
       if (pending.state) redirect.searchParams.set("state", pending.state);
       return Response.redirect(redirect, 303);
     }
-    this.#store.saveGrant(
-      pending.userId,
-      pending.clientId,
-      pending.resource,
-      pending.scopes,
-    );
+    this.#store.saveGrant(pending.userId, pending.clientId, pending.resource, pending.scopes);
     return this.#issueAuthorizationCode(pending);
   }
 
