@@ -12,6 +12,7 @@ import type { CodeMHttpConfig, ExternalAuthConfig } from "./config.ts";
 import { createCodeMServer } from "./create-server.ts";
 import type { GitHubConnectionProvider } from "./create-server.ts";
 import type { GitHubSetupController } from "./github/github-setup-controller.ts";
+import { SQLiteOAuthStore } from "./storage/sqlite-oauth-store.ts";
 
 export interface HttpServerDependencies {
   workspaceRoot: string;
@@ -133,6 +134,7 @@ export function createHttpHandler(
     config.auth.provider === "embedded"
       ? new EmbeddedAuthorizationServer({
           database: dependencies.database,
+          store: new SQLiteOAuthStore(dependencies.database),
           config: config as CodeMHttpConfig & {
             auth: Extract<CodeMHttpConfig["auth"], { provider: "embedded" }>;
           },
