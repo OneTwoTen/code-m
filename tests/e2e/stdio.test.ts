@@ -55,6 +55,7 @@ describe("CodeM stdio MVP", () => {
 
     const toolList = await client.listTools();
     expect(toolList.tools.map((tool) => tool.name).sort()).toEqual([
+      "github.connection_status",
       "system.info",
       "terminal.exec",
       "workspace.read_file",
