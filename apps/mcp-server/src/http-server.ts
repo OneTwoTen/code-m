@@ -30,6 +30,91 @@ function json(value: unknown, status = 200, headers?: HeadersInit): Response {
   });
 }
 
+function isSafeLocalPath(value: string): boolean {
+  return value.startsWith("/") && !value.startsWith("//") && !value.includes("\\");
+}
+
+async function setupTokenMatches(request: Request): Promise<boolean> {
+  const expected = process.env.CODEM_SETUP_TOKEN?.trim();
+  if (!expected) return false;
+
+  const header = request.headers.get("x-codem-setup-token")?.trim();
+  if (header === expected) return true;
+
+  const url = new URL(request.url);
+  if (url.searchParams.get("setup_token") === expected) return true;
+
+  if (request.method === "POST") {
+    const form = await request.clone().formData().catch(() => undefined);
+    return form?.get("setup_token") === expected;
+  }
+  return false;
+}
+
+async function validateEmbeddedRequest(request: Request): Promise<Response | undefined> {
+  const url = new URL(request.url);
+
+  if (url.pathname === "/setup" && !(await setupTokenMatches(request))) {
+    return json(
+      {
+        error: "setup_token_required",
+        message: "Set CODEM_SETUP_TOKEN and provide it as x-codem-setup-token.",
+      },
+      403,
+    );
+  }
+
+  if (url.pathname === "/oauth/authorize") {
+    const scopes = (url.searchParams.get("scope") ?? "").split(/\s+/).filter(Boolean);
+    if (scopes.includes("codem:execute")) {
+      return json({ error: "invalid_scope", message: "codem:execute is not grantable yet." }, 400);
+    }
+  }
+
+  if (url.pathname === "/oauth/register" && request.method === "POST") {
+    const payload = (await request.clone().json().catch(() => undefined)) as
+      | { redirect_uris?: unknown }
+      | undefined;
+    const redirectUris = Array.isArray(payload?.redirect_uris) ? payload.redirect_uris : [];
+    const valid = redirectUris.every((value) => {
+      if (typeof value !== "string") return false;
+      try {
+        const redirect = new URL(value);
+        const loopback = redirect.hostname === "localhost" || redirect.hostname === "127.0.0.1";
+        return redirect.protocol === "https:" || (loopback && redirect.protocol === "http:");
+      } catch {
+        return false;
+      }
+    });
+    if (!valid) return json({ error: "invalid_redirect_uri" }, 400);
+  }
+
+  return undefined;
+}
+
+async function normalizeEmbeddedResponse(
+  request: Request,
+  response: Response,
+  publicUrl: URL,
+): Promise<Response> {
+  const headers = new Headers(response.headers);
+  const cookie = headers.get("set-cookie");
+  if (cookie && publicUrl.protocol !== "https:") {
+    headers.set("set-cookie", cookie.replace(/; Secure/gi, ""));
+  }
+
+  if (request.method === "POST" && new URL(request.url).pathname === "/login") {
+    const form = await request.clone().formData().catch(() => undefined);
+    const rawNext = form?.get("next");
+    if (typeof rawNext === "string") {
+      const decoded = decodeURIComponent(rawNext);
+      if (isSafeLocalPath(decoded)) headers.set("location", new URL(decoded, publicUrl).href);
+    }
+  }
+
+  return new Response(response.body, { status: response.status, headers });
+}
+
 export function createHttpHandler(
   config: CodeMHttpConfig,
   dependencies: HttpServerDependencies,
@@ -76,8 +161,12 @@ export function createHttpHandler(
     const githubSetupResponse = await dependencies.githubSetup?.handle(request);
     if (githubSetupResponse) return githubSetupResponse;
 
-    const authResponse = await embedded?.handle(request);
-    if (authResponse) return authResponse;
+    if (embedded) {
+      const rejected = await validateEmbeddedRequest(request);
+      if (rejected) return rejected;
+      const authResponse = await embedded.handle(request);
+      if (authResponse) return normalizeEmbeddedResponse(request, authResponse, config.publicUrl);
+    }
 
     if (url.pathname !== "/mcp") return json({ error: "not_found" }, 404);
     if (request.method !== "POST") {
