@@ -20,6 +20,7 @@ describe("loadCodeMConfig", () => {
     expect(config.allowedHosts).toEqual(["codem.example.com"]);
     expect(config.dataDir).toBe("/data");
     expect(config.databaseUrl).toBe("file:/data/codem.sqlite");
+    expect(config.outboundHttpTimeoutMs).toBe(10_000);
   });
 
   test("derives the SQLite path from a custom data directory", () => {
@@ -35,6 +36,19 @@ describe("loadCodeMConfig", () => {
     });
     if (config.transport !== "http") throw new Error("expected HTTP config");
     expect(config.databaseUrl).toBe("postgresql://codem:secret@db/codem");
+  });
+
+  test("supports a bounded outbound HTTP timeout override", () => {
+    const config = loadCodeMConfig({
+      ...productionEnv,
+      CODEM_OUTBOUND_HTTP_TIMEOUT_MS: "2500",
+    });
+    if (config.transport !== "http") throw new Error("expected HTTP config");
+    expect(config.outboundHttpTimeoutMs).toBe(2_500);
+
+    expect(() =>
+      loadCodeMConfig({ ...productionEnv, CODEM_OUTBOUND_HTTP_TIMEOUT_MS: "0" }),
+    ).toThrow("CODEM_OUTBOUND_HTTP_TIMEOUT_MS");
   });
 
   test("rejects non-HTTPS public URLs outside localhost", () => {
