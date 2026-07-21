@@ -42,4 +42,10 @@ describe("loadCodeMConfig", () => {
       loadCodeMConfig({ ...productionEnv, CODEM_PUBLIC_URL: "http://codem.example.com" }),
     ).toThrow("CODEM_PUBLIC_URL must use HTTPS");
   });
+
+  test("rejects public URLs with a non-root base path", () => {
+    expect(() =>
+      loadCodeMConfig({ ...productionEnv, CODEM_PUBLIC_URL: "https://codem.example.com/codem" }),
+    ).toThrow("CODEM_PUBLIC_URL must not include a path");
+  });
 });
