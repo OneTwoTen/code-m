@@ -17,9 +17,7 @@ const GITHUB_ENVIRONMENT_KEYS = [
 
 afterEach(async () => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
-  await Promise.all(
-    temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })));
 });
 
 async function createConnectedClient() {
