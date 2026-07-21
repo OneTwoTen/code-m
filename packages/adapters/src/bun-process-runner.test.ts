@@ -27,6 +27,16 @@ function request(overrides: Partial<ProcessExecutionRequest> = {}): ProcessExecu
   };
 }
 
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    throw error;
+  }
+}
+
 describe("BunProcessRunner", () => {
   test("captures stdout from a successful process", async () => {
     const result = await runner.execute(request(), context());
@@ -64,6 +74,43 @@ describe("BunProcessRunner", () => {
     expect(result.durationMs).toBeLessThan(1_000);
   });
 
+  test("kills descendants after the direct child exits during termination grace", async () => {
+    if (process.platform === "win32") return;
+
+    const descendantScript = "process.on('SIGTERM', () => {}); await Bun.sleep(10000);";
+    const parentScript = `
+      const child = Bun.spawn({
+        cmd: [process.execPath, "-e", ${JSON.stringify(descendantScript)}],
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      console.log(child.pid);
+      await Bun.sleep(10000);
+    `;
+
+    let descendantPid = 0;
+    try {
+      const result = await runner.execute(
+        request({
+          args: ["-e", parentScript],
+          timeoutMs: 200,
+          terminationGraceMs: 50,
+        }),
+        context(),
+      );
+
+      descendantPid = Number(result.stdout.trim());
+      expect(result.timedOut).toBe(true);
+      expect(Number.isInteger(descendantPid)).toBe(true);
+      expect(processExists(descendantPid)).toBe(false);
+    } finally {
+      if (descendantPid && processExists(descendantPid)) {
+        process.kill(descendantPid, "SIGKILL");
+      }
+    }
+  });
+
   test("terminates a process when the request is cancelled", async () => {
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 25);
@@ -75,6 +122,24 @@ describe("BunProcessRunner", () => {
 
     expect(result.cancelled).toBe(true);
     expect(result.durationMs).toBeLessThan(1_000);
+  });
+
+  test("does not spawn when the request is already cancelled", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await runner.execute(
+      request({ command: "codem-command-that-does-not-exist" }),
+      context(controller.signal),
+    );
+
+    expect(result).toMatchObject({
+      exitCode: null,
+      timedOut: false,
+      cancelled: true,
+      stdout: "",
+      stderr: "",
+    });
   });
 
   test("rejects stdin larger than the configured byte limit", async () => {
