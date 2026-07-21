@@ -17,7 +17,12 @@ export class SecretBox {
     const cipher = createCipheriv("aes-256-gcm", this.#key, iv);
     const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
     const tag = cipher.getAuthTag();
-    return [VERSION, iv.toString("base64url"), tag.toString("base64url"), ciphertext.toString("base64url")].join(".");
+    return [
+      VERSION,
+      iv.toString("base64url"),
+      tag.toString("base64url"),
+      ciphertext.toString("base64url"),
+    ].join(".");
   }
 
   decrypt(value: string): string {
@@ -26,7 +31,11 @@ export class SecretBox {
       throw new Error("Encrypted secret has an invalid format.");
     }
     try {
-      const decipher = createDecipheriv("aes-256-gcm", this.#key, Buffer.from(ivValue, "base64url"));
+      const decipher = createDecipheriv(
+        "aes-256-gcm",
+        this.#key,
+        Buffer.from(ivValue, "base64url"),
+      );
       decipher.setAuthTag(Buffer.from(tagValue, "base64url"));
       return Buffer.concat([
         decipher.update(Buffer.from(ciphertextValue, "base64url")),
