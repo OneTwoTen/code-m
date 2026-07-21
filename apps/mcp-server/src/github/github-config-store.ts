@@ -6,9 +6,9 @@ import { SecretBox } from "./secret-box.ts";
 const CONFIG_KEY = "github.app.config";
 
 export interface StoredGitHubConfig extends GitHubAppConfig {
-  clientId?: string;
-  clientSecret?: string;
-  webhookSecret?: string;
+  clientId?: string | undefined;
+  clientSecret?: string | undefined;
+  webhookSecret?: string | undefined;
 }
 
 function sha256(value: string): string {
