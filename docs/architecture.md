@@ -1,283 +1,161 @@
-# CodeM Architecture
+# CodeM architecture
 
-## 1. Purpose
+## Purpose
 
-CodeM provides coding agents with a controlled interface to a source workspace. It is responsible for project inspection, file operations, Git operations, process execution, diagnostics, and quality checks.
+CodeM is an MCP capability server for coding agents. It does not decide what code to write. It gives an authenticated client bounded access to workspace reads, process execution, and server-side integrations.
 
-CodeM is not an autonomous coding agent. It does not decide what changes to make. It exposes capabilities that an agent can invoke through MCP.
+The current deployment target is a modular monolith: one Bun process, one container, and one SQLite database.
 
-## 2. Architectural style
-
-The initial system is a modular monolith with ports and adapters.
+## Runtime shape
 
 ```text
 MCP client
-    |
-    v
-MCP transport and tool registration
-    |
-    v
-Tool handlers
-    |
-    v
-Core use cases and policies
-    |
-    v
-Ports
-    |
-    v
-Filesystem, Git, process, sandbox, persistence adapters
+   |
+   | stdio or HTTPS
+   v
+apps/mcp-server
+   |-- MCP tool registration and protocol mapping
+   |-- Streamable HTTP routes
+   |-- embedded OAuth or external introspection
+   |-- GitHub App setup/provider
+   `-- SQLite composition
+           |
+           v
+packages/core ports <--- packages/adapters
+                           Bun process runner
 ```
 
-The modular monolith keeps deployment simple while preserving boundaries that allow process execution or persistence to be extracted later.
+The same tool registry is used by stdio and HTTP transports. Transport-specific authentication and policy are applied before a tool handler runs.
 
-## 3. Repository structure
+## Repository structure
 
 ```text
-apps/
-  mcp-server/
-    src/
-      main.ts
-      server/
-      transports/
-      middleware/
-      routes/
-  web/                         # optional
+apps/mcp-server/src/
+  main.ts                     composition root
+  create-server.ts            MCP tools and scope checks
+  http-server.ts              HTTP routes and MCP transport
+  config.ts                   validated runtime configuration
+  application-metadata.ts     canonical name/version/runtime
+  auth/                       embedded OAuth and introspection
+  github/                     GitHub App setup and API client
+  storage/                    SQLite migrations and stores
 
-packages/
-  tool-contracts/
-  tools/
-  core/
-  policy/
-  adapters/
-  host-openai/
-  observability/
-  testkit/
+packages/core/src/
+  process/                     portable process contracts
+  workspace/                   workspace-boundary policy
 
-tests/
-  contract/
-  integration/
-  e2e/
-  security/
+packages/adapters/src/
+  bun-process-runner.ts        Bun-specific process implementation
+
+tests/e2e/
+  stdio.test.ts
+  http.test.ts
 ```
 
-### `apps/mcp-server`
+Bun-specific process APIs stay in the adapter package. MCP SDK types and HTTP concerns stay in the application package.
 
-Composition root and protocol boundary. It creates the MCP server, selects transports, constructs dependencies, registers tools and resources, and maps domain errors to protocol responses.
+## Configuration and application identity
 
-It must not contain filesystem, Git, or process business logic.
+`CODEM_PUBLIC_URL` is the source of truth for:
 
-### `packages/tool-contracts`
+- OAuth issuer and endpoints
+- protected-resource metadata
+- the MCP resource URL
+- redirects and Bearer challenges
 
-Shared public contracts:
+Only an origin URL with pathname `/` is supported. Rejecting base paths is deliberate: partially rewriting only some OAuth and MCP URLs would create invalid resource and redirect identities.
 
-- tool definition
-- Zod input and output schemas
-- execution context
-- normalized errors
-- pagination and truncation metadata
-- approval requirements
+Application name and version are read from the root `package.json` and reused by MCP metadata, `system.info`, `/health`, and startup logs.
 
-Contracts must not import server, transport, ChatGPT, or Bun-specific modules.
+## Authentication boundary
 
-### `packages/tools`
+### Embedded OAuth
 
-One directory per public MCP tool. Each tool owns its schema, metadata, handler, and tests.
+The embedded authorization server implements:
 
-```text
-tools/src/workspace/read-file/
-  schema.ts
-  metadata.ts
-  handler.ts
-  handler.test.ts
-  index.ts
-```
+1. dynamic client registration
+2. administrator session authentication
+3. authorization request validation
+4. explicit consent or reuse of a persisted grant
+5. CSRF-bound, single-use pending requests
+6. PKCE authorization codes
+7. access-token issuance and refresh-token rotation
 
-Handlers validate intent-level input and call core use cases. They do not directly access `Bun.spawn`, `node:fs`, or Git commands.
+Consent requests are bound to the user session and expire. Authorization codes and refresh tokens are conditionally consumed in SQLite transactions so concurrent exchanges can produce at most one success.
 
-### `packages/core`
+Embedded OAuth cannot grant `codem:execute` in this release.
 
-Contains application and domain behavior:
+### External introspection
 
-- workspace inspection
-- project profile detection
-- patch planning and application
-- process execution orchestration
-- Git use cases
-- diagnostics normalization
-- artifact management
+The external adapter sends the token and expected resource to an RFC 7662-style introspection endpoint. An active response is accepted only when `aud` or `resource` matches the exact MCP URL. The request has a bounded deadline.
 
-Core depends on ports, not concrete adapters.
+## Persistence boundary
 
-### `packages/policy`
+SQLite is the implemented adapter. Startup enables WAL mode, foreign keys, a busy timeout, and ordered schema migrations.
 
-Central authorization and safety rules:
+OAuth code depends on the `OAuthStore` interface for:
 
-- workspace boundary
-- path access
-- command execution
-- environment variables
-- output limits
-- timeout limits
-- network permissions
-- approval requirements
-- secret redaction
+- persisted grants
+- pending authorization requests
+- authorization-code creation and exchange
+- refresh-token rotation
 
-Policy decisions return structured allow, deny, or approval-required results.
+The interface prevents auth logic from depending on SQLite query details and is the future extension point for PostgreSQL. A PostgreSQL adapter is not included yet.
 
-### `packages/adapters`
+With SQLite, CodeM runs as one writable replica against one persistent `/data` volume.
 
-Concrete integrations:
+## Tool execution flow
 
-- Node-compatible filesystem
-- Bun process execution
-- Git CLI
-- ripgrep or fallback text search
-- local artifact storage
-- container sandbox
+1. The transport validates the request and authenticates the caller where required.
+2. HTTP mode attaches `AuthInfo` containing resource, client, scopes, and subject.
+3. The MCP SDK validates the protocol request and tool schema.
+4. CodeM checks the required scope and remote execution policy.
+5. The handler resolves workspace-relative paths.
+6. A core port invokes the concrete adapter.
+7. Output is bounded and mapped to a safe MCP result.
 
-Bun-specific APIs are restricted to adapters and application entrypoints.
+HTTP `codem:read` protects read-only tools. `codem:execute` is required for terminal execution in addition to the server policy switch.
 
-### `packages/host-openai`
+## Process execution boundary
 
-Optional ChatGPT Apps SDK compatibility layer. It maps generic tool definitions and results to OpenAI-specific metadata, resources, and widget configuration.
+The public terminal contract separates the executable from arguments and never accepts an opaque shell string. The Bun adapter applies:
 
-Core tools remain usable by other MCP clients when this package is absent.
+- workspace-relative `cwd`
+- a reduced environment
+- stdin and stdout/stderr byte limits
+- wall-clock timeout and request cancellation
+- a detached process group on supported POSIX systems
+- graceful `SIGTERM`, then `SIGKILL` after a bounded grace period
+- direct-child fallback when process-group signaling is unavailable
 
-## 4. Runtime and workspace model
+These controls make local execution bounded. They do not replace a container-per-job or microVM sandbox for hostile multi-tenant repositories.
 
-Each tool call receives an immutable execution context:
+## Outbound network boundary
 
-```ts
-export interface ExecutionContext {
-  requestId: string;
-  sessionId?: string;
-  actorId?: string;
-  workspaceRoot: string;
-  permissions: {
-    read: boolean;
-    write: boolean;
-    execute: boolean;
-    network: boolean;
-  };
-  limits: {
-    timeoutMs: number;
-    stdoutBytes: number;
-    stderrBytes: number;
-    resultBytes: number;
-  };
-  signal: AbortSignal;
-}
-```
+OAuth introspection and GitHub API calls use one timed fetch helper. It composes caller cancellation with a configured timeout and maps timeout failures to safe errors that omit credentials and response bodies.
 
-`workspaceRoot` is never global. A request cannot select an arbitrary absolute root unless the host has already authorized it.
+## HTTP boundary
 
-## 5. Tool execution flow
+The HTTP server provides:
 
-1. Transport authenticates the caller when required.
-2. Server creates `ExecutionContext`.
-3. MCP SDK validates the request envelope.
-4. Tool schema validates arguments.
-5. Tool handler creates a use-case request.
-6. Policy evaluates access and approval requirements.
-7. Core invokes ports.
-8. Adapter performs the operation.
-9. Output is normalized, truncated, and redacted.
-10. Server returns structured content and an optional artifact reference.
-11. Audit metadata is recorded.
+- `/health`
+- `/.well-known/oauth-protected-resource`
+- `/.well-known/oauth-authorization-server` in embedded mode
+- `/setup`, `/login`, and OAuth endpoints
+- `/mcp`
 
-## 6. Error model
+Requests must carry an allowed `Host`. Public deployments require HTTPS. OAuth registration accepts HTTPS redirects and HTTP only for loopback hosts.
 
-Errors are stable and machine-readable:
+## Deployment and extraction points
 
-```ts
-export type CodeMErrorCode =
-  | "INVALID_INPUT"
-  | "PERMISSION_DENIED"
-  | "APPROVAL_REQUIRED"
-  | "PATH_OUTSIDE_WORKSPACE"
-  | "NOT_FOUND"
-  | "CONFLICT"
-  | "PROCESS_TIMEOUT"
-  | "PROCESS_FAILED"
-  | "OUTPUT_LIMIT_EXCEEDED"
-  | "UNSUPPORTED_PROJECT"
-  | "INTERNAL_ERROR";
-```
+The modular monolith keeps the default deployment easy to operate. Components should be extracted only when a concrete scaling or isolation requirement exists.
 
-Every error includes a safe user-facing message and may include structured details. Raw stack traces and secrets are never returned to the model.
+Likely future extraction points are:
 
-## 7. State model
+- PostgreSQL persistence for multiple replicas
+- a dedicated sandbox executor
+- artifact/blob storage
+- distributed job scheduling
+- audit/event storage
 
-Server-side state:
-
-- authorized workspace roots
-- job and process records
-- terminal session state
-- artifact metadata
-- audit events
-- approval decisions
-
-Widget-only state:
-
-- selected tab
-- expanded file
-- scroll position
-- local filters
-
-Coding state must not exist only inside a ChatGPT widget.
-
-## 8. Transport strategy
-
-### `stdio`
-
-Default for local coding agents. It has low setup cost and inherits the local agent's process boundary.
-
-### Streamable HTTP
-
-Used for remote clients and ChatGPT. It requires authentication, origin and host checks, rate limits, request size limits, and sandboxed execution.
-
-The two transports share the same tool registry and application services.
-
-## 9. Output strategy
-
-Tool results use predictable structured data. Inline output is bounded. Large files, logs, patches, and reports are written as artifacts and returned by reference.
-
-Every bounded output reports:
-
-- whether truncation occurred
-- original or estimated size when available
-- artifact identifier when the complete output was persisted
-
-## 10. Dependency direction
-
-Allowed:
-
-```text
-apps -> tools -> core -> ports
-apps -> adapters -> ports
-host-openai -> tool-contracts
-policy -> tool-contracts
-```
-
-Forbidden:
-
-```text
-core -> MCP SDK
-core -> ChatGPT Apps SDK
-core -> Bun APIs
-core -> concrete filesystem/process adapters
-tool handlers -> Bun.spawn
-```
-
-## 11. Future extraction points
-
-The following may become separate services only when required:
-
-- sandbox executor
-- artifact storage
-- job queue
-- indexing and semantic search
-- organization policy service
-
-Their current interfaces must be designed as ports so extraction does not change public tool contracts.
+Public MCP tool contracts should remain stable when those adapters change.
