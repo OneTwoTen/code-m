@@ -8,10 +8,10 @@ function fingerprint(config: GitHubAppConfig): string {
 }
 
 export class DatabaseBackedGitHubProvider implements GitHubConnectionProvider {
-  readonly #environment?: GitHubAppConfig;
+  readonly #environment: GitHubAppConfig | undefined;
   readonly #store: GitHubConfigStore;
   readonly #timeoutMs: number;
-  #cached?: { fingerprint: string; client: GitHubAppClient };
+  #cached: { fingerprint: string; client: GitHubAppClient } | undefined;
 
   constructor(
     environment: GitHubAppConfig | undefined,
