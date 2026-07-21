@@ -13,7 +13,7 @@ export interface GitHubAppConfig {
 export interface CodeMBaseConfig {
   transport: CodeMTransport;
   workspaceRoot: string;
-  github?: GitHubAppConfig;
+  github?: GitHubAppConfig | undefined;
 }
 
 export interface CodeMStdioConfig extends CodeMBaseConfig {
