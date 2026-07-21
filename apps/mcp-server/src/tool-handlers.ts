@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { open, stat } from "node:fs/promises";
 import type { ProcessExecutionResult, ProcessRunner } from "@codem/core";
 import { CodeMError, resolveWorkspacePath } from "@codem/core";
 
@@ -33,20 +33,25 @@ export async function readWorkspaceFile(
     throw new CodeMError("INVALID_INPUT", "The requested path is not a regular file.");
   }
 
-  const raw = new Uint8Array(await readFile(resolvedPath));
   const limit = Math.max(1, Math.min(maxBytes, DEFAULT_FILE_LIMIT_BYTES));
-  const accepted = raw.byteLength > limit ? raw.subarray(0, limit) : raw;
+  const buffer = new Uint8Array(limit + 1);
+  const handle = await open(resolvedPath, "r");
+  try {
+    const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0);
+    const accepted = buffer.subarray(0, Math.min(bytesRead, limit));
+    if (accepted.includes(0)) {
+      throw new CodeMError("INVALID_INPUT", "Binary files are not supported by this MVP tool.");
+    }
 
-  if (accepted.includes(0)) {
-    throw new CodeMError("INVALID_INPUT", "Binary files are not supported by this MVP tool.");
+    return {
+      path: requestedPath,
+      content: new TextDecoder().decode(accepted),
+      sizeBytes: fileStat.size,
+      truncated: fileStat.size > limit,
+    };
+  } finally {
+    await handle.close();
   }
-
-  return {
-    path: requestedPath,
-    content: new TextDecoder().decode(accepted),
-    sizeBytes: raw.byteLength,
-    truncated: raw.byteLength > limit,
-  };
 }
 
 export async function executeTerminal(
