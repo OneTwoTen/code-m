@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ProcessExecutionRequest } from "@codem/core";
 import { BunProcessRunner } from "./bun-process-runner.ts";
 
@@ -74,10 +77,19 @@ describe("BunProcessRunner", () => {
     expect(result.durationMs).toBeLessThan(1_000);
   });
 
-  test("kills descendants after the direct child exits during termination grace", async () => {
+  test("stops descendants after the direct child exits during termination grace", async () => {
     if (process.platform === "win32") return;
 
-    const descendantScript = "process.on('SIGTERM', () => {}); await Bun.sleep(10000);";
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), "codem-process-tree-"));
+    const heartbeatPath = join(temporaryDirectory, "heartbeat");
+    const descendantScript = `
+      process.on("SIGTERM", () => {});
+      let count = 0;
+      while (true) {
+        await Bun.write(${JSON.stringify(heartbeatPath)}, String(++count));
+        await Bun.sleep(10);
+      }
+    `;
     const parentScript = `
       const child = Bun.spawn({
         cmd: [process.execPath, "-e", ${JSON.stringify(descendantScript)}],
@@ -85,6 +97,9 @@ describe("BunProcessRunner", () => {
         stdout: "ignore",
         stderr: "ignore",
       });
+      while (!(await Bun.file(${JSON.stringify(heartbeatPath)}).exists())) {
+        await Bun.sleep(5);
+      }
       console.log(child.pid);
       await Bun.sleep(10000);
     `;
@@ -94,7 +109,7 @@ describe("BunProcessRunner", () => {
       const result = await runner.execute(
         request({
           args: ["-e", parentScript],
-          timeoutMs: 200,
+          timeoutMs: 500,
           terminationGraceMs: 50,
         }),
         context(),
@@ -103,11 +118,15 @@ describe("BunProcessRunner", () => {
       descendantPid = Number(result.stdout.trim());
       expect(result.timedOut).toBe(true);
       expect(Number.isInteger(descendantPid)).toBe(true);
-      expect(processExists(descendantPid)).toBe(false);
+
+      const heartbeatAfterReturn = await Bun.file(heartbeatPath).text();
+      await Bun.sleep(100);
+      expect(await Bun.file(heartbeatPath).text()).toBe(heartbeatAfterReturn);
     } finally {
       if (descendantPid && processExists(descendantPid)) {
         process.kill(descendantPid, "SIGKILL");
       }
+      await rm(temporaryDirectory, { recursive: true, force: true });
     }
   });
 
