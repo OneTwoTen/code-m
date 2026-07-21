@@ -24,45 +24,16 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Check formatting
-        id: format
-        run: |
-          bun run format
-          git diff --exit-code > formatter.patch
-
-      - name: Upload formatter patch
-        if: failure() && steps.format.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: formatter-patch
-          path: |
-            formatter.patch
-            apps/mcp-server/src/auth/embedded.ts
-            apps/mcp-server/src/auth/embedded.integration.test.ts
+        run: bun run format:check
 
       - name: Lint
         run: bun run lint
 
       - name: Typecheck
-        id: typecheck
-        run: bun run typecheck 2>&1 | tee typecheck.log
-
-      - name: Upload typecheck log
-        if: failure() && steps.typecheck.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: typecheck-log
-          path: typecheck.log
+        run: bun run typecheck
 
       - name: Test
-        id: test
-        run: bun run test 2>&1 | tee test.log
-
-      - name: Upload test log
-        if: failure() && steps.test.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-log
-          path: test.log
+        run: bun run test
 
       - name: Build Docker image
         run: docker build --tag codem-mcp:ci .
