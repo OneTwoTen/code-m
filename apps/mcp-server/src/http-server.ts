@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { ProcessRunner } from "@codem/core";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { CODEM_APPLICATION, runtimeVersion } from "./application-metadata.ts";
 import { EmbeddedAuthorizationServer } from "./auth/embedded.ts";
 import { IntrospectionAccessTokenVerifier, UnauthorizedError } from "./auth/introspection.ts";
 import {
@@ -160,7 +161,13 @@ export function createHttpHandler(
     }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ status: "ok", transport: "http", database: "ready" });
+      return json({
+        status: "ok",
+        application: CODEM_APPLICATION,
+        runtime: runtimeVersion(),
+        transport: "http",
+        database: "ready",
+      });
     }
 
     if (request.method === "GET" && url.pathname === "/.well-known/oauth-protected-resource") {
