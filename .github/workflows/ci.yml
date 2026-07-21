@@ -33,18 +33,7 @@ jobs:
         run: bun run typecheck
 
       - name: Test
-        id: test
-        shell: bash
-        run: |
-          set -o pipefail
-          bun run test 2>&1 | tee test.log
-
-      - name: Upload test diagnostics
-        if: failure() && steps.test.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-log
-          path: test.log
+        run: bun run test
 
       - name: Build Docker image
         run: docker build --tag codem-mcp:ci .
