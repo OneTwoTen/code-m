@@ -11,6 +11,13 @@ export class CodeMError extends Error {
   }
 }
 
+function assertInsideWorkspace(workspaceRoot: string, candidate: string): void {
+  const relativePath = relative(workspaceRoot, candidate);
+  if (relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
+    throw new CodeMError("PATH_OUTSIDE_WORKSPACE", "Path is outside the authorized workspace.");
+  }
+}
+
 export async function resolveWorkspacePath(
   workspaceRoot: string,
   requestedPath: string,
@@ -25,12 +32,9 @@ export async function resolveWorkspacePath(
 
   const canonicalRoot = await realpath(workspaceRoot);
   const candidate = resolve(canonicalRoot, requestedPath || ".");
+  assertInsideWorkspace(canonicalRoot, candidate);
+
   const canonicalCandidate = await realpath(candidate);
-  const relativePath = relative(canonicalRoot, canonicalCandidate);
-
-  if (relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
-    throw new CodeMError("PATH_OUTSIDE_WORKSPACE", "Path is outside the authorized workspace.");
-  }
-
+  assertInsideWorkspace(canonicalRoot, canonicalCandidate);
   return canonicalCandidate;
 }

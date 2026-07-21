@@ -1,5 +1,6 @@
 import { createSign } from "node:crypto";
 import type { GitHubAppConfig } from "../config.ts";
+import { fetchWithTimeout, OutboundHttpTimeoutError } from "../http/fetch-with-timeout.ts";
 
 interface InstallationTokenResponse {
   token: string;
@@ -62,11 +63,17 @@ export function createGitHubAppJwt(config: GitHubAppConfig, now = Date.now()): s
 export class GitHubAppClient {
   readonly #config: GitHubAppConfig;
   readonly #fetch: typeof fetch;
+  readonly #timeoutMs: number;
   #cached?: CachedToken;
 
-  constructor(config: GitHubAppConfig, fetchFn: typeof fetch = fetch) {
+  constructor(config: GitHubAppConfig, fetchFn: typeof fetch = fetch, timeoutMs = 10_000) {
     this.#config = config;
     this.#fetch = fetchFn;
+    this.#timeoutMs = timeoutMs;
+  }
+
+  async #request(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    return fetchWithTimeout(this.#fetch, input, init, this.#timeoutMs);
   }
 
   async #installationToken(): Promise<CachedToken> {
@@ -74,7 +81,7 @@ export class GitHubAppClient {
     if (this.#cached && this.#cached.expiresAt - 60_000 > now) return this.#cached;
 
     const jwt = createGitHubAppJwt(this.#config, now);
-    const response = await this.#fetch(
+    const response = await this.#request(
       `${this.#config.apiUrl}/app/installations/${this.#config.installationId}/access_tokens`,
       {
         method: "POST",
@@ -101,7 +108,7 @@ export class GitHubAppClient {
   async getConnectionStatus(): Promise<GitHubConnectionStatus> {
     try {
       const installation = await this.#installationToken();
-      const response = await this.#fetch(
+      const response = await this.#request(
         `${this.#config.apiUrl}/installation/repositories?per_page=20`,
         {
           headers: {
@@ -135,7 +142,12 @@ export class GitHubAppClient {
         authenticated: false,
         reachable: false,
         installationId: this.#config.installationId,
-        error: error instanceof Error ? error.message : "GitHub connection failed.",
+        error:
+          error instanceof OutboundHttpTimeoutError
+            ? "GitHub request timed out."
+            : error instanceof Error
+              ? error.message
+              : "GitHub connection failed.",
       };
     }
   }

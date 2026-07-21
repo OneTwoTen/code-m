@@ -1,109 +1,73 @@
-# CodeM Delivery Roadmap
+# CodeM delivery roadmap
 
-## MVP objective
+## Current release objective
 
-Prove that CodeM can run as a real MCP server, expose useful coding tools, enforce basic workspace and process policies, and be exercised automatically in CI.
+CodeM now proves both local and self-hosted remote MCP workflows:
 
-The MVP is intentionally narrow. It is a feasibility release, not a production-ready remote coding platform.
+- a real MCP server over stdio and Streamable HTTP
+- bounded workspace reads and non-interactive process execution
+- embedded OAuth or external token introspection
+- SQLite persistence and startup migrations
+- server-side GitHub App setup and connection checks
+- one-container deployment with a persistent `/data` volume
+- automated unit, integration, HTTP, stdio, and Docker verification
 
-## MVP acceptance criteria
+The supported production shape remains a single-operator, single-replica service. It is not yet a public multi-tenant coding platform.
 
-1. `bun install` succeeds from a clean checkout.
-2. `bun run check` runs Biome, TypeScript type checking, and tests.
-3. The stdio MCP server starts without writing protocol-breaking logs to stdout.
-4. An MCP client can list and call `system.info`.
-5. An MCP client can call `workspace.read_file` within the configured workspace.
-6. Paths outside the workspace are rejected.
-7. An MCP client can call `terminal.exec` with executable and argument arrays.
-8. `terminal.exec` enforces workspace-relative `cwd`, timeout, and output limits.
-9. Tool-level failures return safe MCP error results.
-10. CI verifies formatting, linting, types, and tests.
+## Delivered foundation
 
-## MVP scope
+### Repository and protocol
 
-### Included
-
-- Bun workspace and scripts
+- Bun 1.3.3 workspace
 - TypeScript strict mode
 - Biome formatting and linting
-- MCP stdio transport
+- MCP TypeScript SDK
+- stdio and Streamable HTTP transports
+- canonical application metadata
+- health and OAuth protected-resource metadata
+
+### Current tools
+
 - `system.info`
 - `workspace.read_file`
+- `github.connection_status`
 - `terminal.exec`
-- workspace-boundary policy
-- bounded process output
-- timeout handling
-- unit and integration tests
-- GitHub Actions CI
 
-### Excluded
+### Workspace and process policy
 
-- Streamable HTTP
-- authentication and OAuth
-- ChatGPT widgets
-- persistent terminal or PTY sessions
-- container sandbox implementation
-- Git write tools
-- patch application
-- distributed jobs
-- artifact persistence
-- semantic code indexing
+- canonical workspace-boundary resolution
+- executable and argument separation
+- reduced process environment
+- stdin and stdout/stderr byte limits
+- timeout and cancellation
+- process-group termination with TERM-to-KILL escalation
+- remote terminal disabled by default
 
-These exclusions prevent the feasibility release from becoming a premature platform build.
+### Remote authentication hardening
 
-## Phase 1: repository skeleton
+- embedded administrator sessions
+- dynamic OAuth client registration
+- explicit consent and persisted grants
+- CSRF/session-bound pending authorization requests
+- PKCE authorization codes
+- atomic, single-use code exchange
+- atomic refresh-token rotation
+- external introspection with required audience/resource
+- outbound request deadlines
+- host and redirect validation
 
-- root Bun workspace
-- shared TypeScript configuration
-- Biome configuration
-- MCP server package
-- core package
-- adapter package
-- test scripts and CI
+### Persistence and operations
 
-Deliverable: the repository installs, formats, type-checks, and tests.
+- SQLite WAL mode and ordered migrations
+- application-facing OAuth storage interface
+- encrypted server-side GitHub settings
+- one-container deployment guide
+- backup and restore runbook
+- HTTP/OAuth/GitHub integration coverage
 
-## Phase 2: vertical MCP slice
+## Next: complete the safe read-change-verify loop
 
-- create MCP server
-- register `system.info`
-- connect over stdio
-- add a smoke test using an in-memory or stdio client where practical
-
-Deliverable: a client can discover and call a real tool.
-
-## Phase 3: workspace read capability
-
-- execution context with authorized workspace root
-- canonical path resolver
-- `workspace.read_file`
-- traversal and not-found tests
-
-Deliverable: useful coding-agent read access with a tested boundary.
-
-## Phase 4: terminal feasibility
-
-- `ProcessRunner` port
-- `BunProcessRunner`
-- `terminal.exec`
-- timeout and output limits
-- policy tests for invalid `cwd`
-
-Deliverable: a coding agent can run `bun --version`, project tests, or similar non-interactive commands without receiving an unrestricted shell string.
-
-## Phase 5: hardening before remote transport
-
-- container-backed executor
-- artifacts for large output
-- process-tree termination
-- authentication and authorization
-- audit persistence
-- rate limiting
-- Streamable HTTP
-
-Deliverable: a remotely deployable service boundary.
-
-## Post-MVP tool sequence
+Recommended tool sequence:
 
 1. `workspace.list_files`
 2. `workspace.search_text`
@@ -114,4 +78,65 @@ Deliverable: a remotely deployable service boundary.
 7. `quality.lint`
 8. `project.inspect`
 
-This order builds a complete read-change-verify loop before introducing Git mutation or interactive terminals.
+This sequence gives an agent focused inspection, controlled mutation, and verification before Git mutation or interactive terminal features are expanded.
+
+## Next: remote execution isolation
+
+Before broadly enabling `terminal.exec` over HTTP:
+
+- implement a dedicated container or microVM executor
+- set CPU, memory, process, filesystem, and network quotas
+- separate each job/workspace identity
+- enforce command policy and approvals
+- persist audit events
+- add concurrency and queue controls
+- test cleanup of descendant and detached processes across platforms
+
+The current local process limits are defense in depth, not the final sandbox boundary.
+
+## Next: production service controls
+
+- application-level rate limiting
+- request-size limits
+- structured security/audit events
+- metrics and tracing
+- secret-rotation procedures
+- session and grant administration UI
+- OAuth revocation and administrator logout-all controls
+- proxy deployment tests
+
+## Next: shared persistence and scaling
+
+SQLite remains the default for one writable replica. Horizontal scaling requires:
+
+- a production PostgreSQL adapter for the existing storage contracts
+- shared session, grant, token, GitHub, and migration state
+- transaction/concurrency tests against PostgreSQL
+- deployment locking and migration coordination
+- backup/restore guidance for the new adapter
+
+PostgreSQL is an extension point, not a delivered feature in the current release.
+
+## Later platform capabilities
+
+- persistent artifacts and large-output references
+- background jobs and cancellation
+- repository checkout/worktree management
+- Git mutation tools and approval flows
+- project indexing and semantic search
+- organization/tenant policy
+- optional ChatGPT Apps SDK UI resources and widgets
+- interactive PTY sessions after isolation and approval controls
+
+## Release gates for a public multi-tenant service
+
+A public service should not launch until all of these are demonstrated:
+
+1. isolated execution per tenant/job
+2. rate and request-size limits
+3. durable audit events
+4. shared production database
+5. secret and credential rotation
+6. tenant-scoped authorization and ownership checks
+7. backup, restore, and disaster-recovery exercises
+8. adversarial security tests for OAuth, workspace, process, and repository content

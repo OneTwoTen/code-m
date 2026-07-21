@@ -12,11 +12,10 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "types": ["bun-types"],
-    "baseUrl": ".",
+    "types": ["bun"],
     "paths": {
-      "@codem/core": ["packages/core/src/index.ts"],
-      "@codem/adapters": ["packages/adapters/src/index.ts"]
+      "@codem/core": ["./packages/core/src/index.ts"],
+      "@codem/adapters": ["./packages/adapters/src/index.ts"]
     }
   },
   "include": ["apps/**/*.ts", "packages/**/*.ts", "tests/**/*.ts"]

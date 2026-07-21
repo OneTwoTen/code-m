@@ -10,6 +10,8 @@ interface CollectedStream {
   truncated: boolean;
 }
 
+type TerminationSignal = "SIGTERM" | "SIGKILL";
+
 async function collectStream(
   stream: ReadableStream<Uint8Array>,
   limitBytes: number,
@@ -47,14 +49,41 @@ async function collectStream(
   };
 }
 
+function stdinSize(value: string | undefined): number {
+  return value === undefined ? 0 : new TextEncoder().encode(value).byteLength;
+}
+
+function cancelledResult(startedAt: number): ProcessExecutionResult {
+  return {
+    exitCode: null,
+    signal: null,
+    stdout: "",
+    stderr: "",
+    durationMs: performance.now() - startedAt,
+    timedOut: false,
+    cancelled: true,
+    stdoutTruncated: false,
+    stderrTruncated: false,
+  };
+}
+
 export class BunProcessRunner implements ProcessRunner {
   async execute(
     request: ProcessExecutionRequest,
     context: ExecutionContext,
   ): Promise<ProcessExecutionResult> {
     const startedAt = performance.now();
+    if (context.signal.aborted) return cancelledResult(startedAt);
+
+    if (stdinSize(request.stdin) > request.stdinLimitBytes) {
+      throw new Error("Process stdin exceeds the configured byte limit.");
+    }
+
     let timedOut = false;
     let cancelled = false;
+    let terminationStarted = false;
+    let escalation: ReturnType<typeof setTimeout> | undefined;
+    let terminationFinished: Promise<void> | undefined;
 
     const child = Bun.spawn({
       cmd: [request.command, ...request.args],
@@ -63,37 +92,66 @@ export class BunProcessRunner implements ProcessRunner {
       stdin: request.stdin === undefined ? "ignore" : new Blob([request.stdin]),
       stdout: "pipe",
       stderr: "pipe",
+      detached: process.platform !== "win32",
     });
 
-    const kill = () => {
+    const signalProcessTree = (signal: TerminationSignal) => {
+      if (process.platform !== "win32") {
+        try {
+          process.kill(-child.pid, signal);
+          return;
+        } catch {
+          // The process group may already be gone or unavailable.
+        }
+      }
+
       try {
-        child.kill();
+        child.kill(signal);
       } catch {
         // Process may already have exited.
       }
     };
 
+    const terminate = () => {
+      if (terminationStarted) return;
+      terminationStarted = true;
+      signalProcessTree("SIGTERM");
+      terminationFinished = new Promise((resolve) => {
+        escalation = setTimeout(() => {
+          signalProcessTree("SIGKILL");
+          resolve();
+        }, request.terminationGraceMs);
+      });
+    };
+
     const timeout = setTimeout(() => {
       timedOut = true;
-      kill();
+      terminate();
     }, request.timeoutMs);
 
     const onAbort = () => {
       cancelled = true;
-      kill();
+      terminate();
     };
 
     context.signal.addEventListener("abort", onAbort, { once: true });
 
-    const [stdout, stderr, exitCode] = await Promise.all([
-      collectStream(child.stdout, request.stdoutLimitBytes),
-      collectStream(child.stderr, request.stderrLimitBytes),
-      child.exited,
-    ]);
+    let output: [CollectedStream, CollectedStream, number] | undefined;
+    try {
+      output = await Promise.all([
+        collectStream(child.stdout, request.stdoutLimitBytes),
+        collectStream(child.stderr, request.stderrLimitBytes),
+        child.exited,
+      ]);
+    } finally {
+      clearTimeout(timeout);
+      context.signal.removeEventListener("abort", onAbort);
+      if (terminationFinished) await terminationFinished;
+      if (escalation) clearTimeout(escalation);
+    }
 
-    clearTimeout(timeout);
-    context.signal.removeEventListener("abort", onAbort);
-
+    if (!output) throw new Error("Process execution did not produce a result.");
+    const [stdout, stderr, exitCode] = output;
     return {
       exitCode,
       signal: null,

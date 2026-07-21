@@ -8,13 +8,19 @@ function fingerprint(config: GitHubAppConfig): string {
 }
 
 export class DatabaseBackedGitHubProvider implements GitHubConnectionProvider {
-  readonly #environment?: GitHubAppConfig;
+  readonly #environment: GitHubAppConfig | undefined;
   readonly #store: GitHubConfigStore;
-  #cached?: { fingerprint: string; client: GitHubAppClient };
+  readonly #timeoutMs: number;
+  #cached: { fingerprint: string; client: GitHubAppClient } | undefined;
 
-  constructor(environment: GitHubAppConfig | undefined, store: GitHubConfigStore) {
+  constructor(
+    environment: GitHubAppConfig | undefined,
+    store: GitHubConfigStore,
+    timeoutMs = 10_000,
+  ) {
     this.#environment = environment;
     this.#store = store;
+    this.#timeoutMs = timeoutMs;
   }
 
   invalidate(): void {
@@ -30,7 +36,10 @@ export class DatabaseBackedGitHubProvider implements GitHubConnectionProvider {
     if (!config) return { configured: false, authenticated: false, reachable: false };
     const key = fingerprint(config);
     if (!this.#cached || this.#cached.fingerprint !== key) {
-      this.#cached = { fingerprint: key, client: new GitHubAppClient(config) };
+      this.#cached = {
+        fingerprint: key,
+        client: new GitHubAppClient(config, fetch, this.#timeoutMs),
+      };
     }
     return this.#cached.client.getConnectionStatus();
   }

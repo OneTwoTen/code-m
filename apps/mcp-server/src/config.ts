@@ -13,7 +13,7 @@ export interface GitHubAppConfig {
 export interface CodeMBaseConfig {
   transport: CodeMTransport;
   workspaceRoot: string;
-  github?: GitHubAppConfig;
+  github?: GitHubAppConfig | undefined;
 }
 
 export interface CodeMStdioConfig extends CodeMBaseConfig {
@@ -47,6 +47,7 @@ export interface CodeMHttpConfig extends CodeMBaseConfig {
   databaseUrl: string;
   auth: EmbeddedAuthConfig | ExternalAuthConfig;
   allowRemoteTerminal: boolean;
+  outboundHttpTimeoutMs: number;
 }
 
 export type CodeMConfig = CodeMStdioConfig | CodeMHttpConfig;
@@ -64,12 +65,22 @@ function parseBoolean(value: string | undefined, fallback = false): boolean {
   throw new Error(`Expected boolean value, received ${value}.`);
 }
 
-function parsePort(value: string | undefined): number {
-  const parsed = Number(value ?? "3000");
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65_535) {
-    throw new Error("CODEM_HTTP_PORT must be an integer between 1 and 65535.");
+function parseInteger(
+  value: string | undefined,
+  name: string,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const parsed = Number(value ?? String(fallback));
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${name} must be an integer between ${minimum} and ${maximum}.`);
   }
   return parsed;
+}
+
+function parsePort(value: string | undefined): number {
+  return parseInteger(value, "CODEM_HTTP_PORT", 3000, 1, 65_535);
 }
 
 function parseUrl(value: string, name: string): URL {
@@ -91,7 +102,9 @@ function parsePublicUrl(value: string): URL {
       "CODEM_PUBLIC_URL must not contain credentials, query parameters, or fragments.",
     );
   }
-  url.pathname = url.pathname.replace(/\/$/, "") || "/";
+  if (url.pathname !== "/") {
+    throw new Error("CODEM_PUBLIC_URL must not include a path; base paths are not supported.");
+  }
   return url;
 }
 
@@ -107,8 +120,8 @@ function parseGitHubConfig(env: Record<string, string | undefined>): GitHubAppCo
   };
 }
 
-function parseScopes(value: string | undefined): string[] {
-  return (value ?? "codem:read codem:execute").split(/[ ,]+/).filter(Boolean);
+function parseScopes(value: string | undefined, defaults: readonly string[]): string[] {
+  return (value ?? defaults.join(" ")).split(/[ ,]+/).filter(Boolean);
 }
 
 export function loadCodeMConfig(
@@ -137,7 +150,12 @@ export function loadCodeMConfig(
     throw new Error("CODEM_AUTH_PROVIDER must be embedded or external-oidc.");
   }
 
-  const scopes = parseScopes(env.CODEM_AUTH_SCOPES);
+  const defaultScopes = provider === "embedded" ? ["codem:read"] : ["codem:read", "codem:execute"];
+  const scopes = parseScopes(env.CODEM_AUTH_SCOPES, defaultScopes);
+  if (provider === "embedded" && scopes.includes("codem:execute")) {
+    throw new Error("Embedded OAuth cannot grant codem:execute in this release.");
+  }
+
   const auth: EmbeddedAuthConfig | ExternalAuthConfig =
     provider === "embedded"
       ? { provider, issuer: publicUrl, scopes }
@@ -170,5 +188,12 @@ export function loadCodeMConfig(
     databaseUrl,
     auth,
     allowRemoteTerminal: parseBoolean(env.CODEM_ALLOW_REMOTE_TERMINAL, false),
+    outboundHttpTimeoutMs: parseInteger(
+      env.CODEM_OUTBOUND_HTTP_TIMEOUT_MS,
+      "CODEM_OUTBOUND_HTTP_TIMEOUT_MS",
+      10_000,
+      1,
+      120_000,
+    ),
   };
 }

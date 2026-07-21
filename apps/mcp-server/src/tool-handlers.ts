@@ -4,8 +4,10 @@ import { CodeMError, resolveWorkspacePath } from "@codem/core";
 
 const DEFAULT_FILE_LIMIT_BYTES = 256 * 1024;
 const DEFAULT_OUTPUT_LIMIT_BYTES = 256 * 1024;
+const DEFAULT_STDIN_LIMIT_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
+const DEFAULT_TERMINATION_GRACE_MS = 500;
 
 export interface ReadWorkspaceFileResult {
   path: string;
@@ -16,9 +18,9 @@ export interface ReadWorkspaceFileResult {
 
 export interface TerminalExecInput {
   command: string;
-  args?: readonly string[];
-  cwd?: string;
-  timeoutMs?: number;
+  args?: readonly string[] | undefined;
+  cwd?: string | undefined;
+  timeoutMs?: number | undefined;
 }
 
 export async function readWorkspaceFile(
@@ -83,6 +85,8 @@ export async function executeTerminal(
       timeoutMs,
       stdoutLimitBytes: DEFAULT_OUTPUT_LIMIT_BYTES,
       stderrLimitBytes: DEFAULT_OUTPUT_LIMIT_BYTES,
+      stdinLimitBytes: DEFAULT_STDIN_LIMIT_BYTES,
+      terminationGraceMs: DEFAULT_TERMINATION_GRACE_MS,
     },
     {
       requestId: crypto.randomUUID(),

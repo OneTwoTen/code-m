@@ -1,121 +1,42 @@
 # CodeM
 
-CodeM is an MCP server for coding agents. The current MVP proves a complete local workflow over stdio: discover tools, read a file inside an authorized workspace, and execute a bounded non-interactive process.
+CodeM is a self-hosted MCP server for coding agents. It supports local stdio and authenticated Streamable HTTP, keeps application state in SQLite by default, and exposes a small set of bounded coding tools.
 
-## MVP stack
+## Current capabilities
 
-- TypeScript with strict mode
-- Bun as runtime, package manager, workspace manager, and test runner
-- MCP TypeScript SDK v1.x
-- Zod for tool schemas
-- Biome as the only formatter and linter
-- `Bun.spawn` behind a portable `ProcessRunner` interface
-- MCP stdio transport
-- Docker image for isolated local execution
+| Capability | Local stdio | Remote HTTP |
+|---|---:|---:|
+| `system.info` | Yes | `codem:read` |
+| `workspace.read_file` | Yes | `codem:read` |
+| `github.connection_status` | Yes | `codem:read` |
+| `terminal.exec` | Yes | Disabled by default |
 
-## Available MVP tools
+`terminal.exec` receives an executable and argument array rather than a shell command string. It enforces a workspace-relative working directory, timeout, stdin/output limits, a reduced environment, and process-tree termination.
 
-| Tool | Purpose | Effect |
-|---|---|---|
-| `system.info` | Report CodeM version, runtime, workspace, and capabilities | Read-only |
-| `workspace.read_file` | Read a bounded UTF-8 file inside the workspace | Read-only |
-| `terminal.exec` | Run one executable with a separate argument array | Execute; may change files |
-
-`terminal.exec` does not accept an opaque shell string. It enforces a workspace-relative working directory, timeout, output limits, and a reduced environment.
+Remote terminal execution is intentionally unavailable through the embedded OAuth flow. CodeM is not yet a hardened multi-tenant sandbox.
 
 ## Requirements
 
 - Bun 1.3.3 for local development
-- Docker for container execution
+- Docker for the recommended self-hosted HTTP deployment
+- HTTPS for public HTTP deployments
 
-## Install
+## Verify a checkout
 
 ```bash
 bun install --frozen-lockfile
-```
-
-## Environment configuration
-
-Copy the example file for local development:
-
-```bash
-cp .env.example .env
-```
-
-The MVP currently reads one environment variable:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `CODEM_WORKSPACE_ROOT` | Current process directory | Absolute or relative path CodeM is allowed to access |
-
-For a coding project outside this repository, set an absolute path:
-
-```env
-CODEM_WORKSPACE_ROOT=/absolute/path/to/project
-```
-
-## Verify
-
-```bash
 bun run check
 ```
 
-This runs:
+The check runs Biome formatting and linting, TypeScript type checking, unit/integration tests, and MCP end-to-end tests. CI also builds the Docker image.
 
-```text
-Biome format check
-Biome lint
-TypeScript typecheck
-Bun tests, including an MCP stdio end-to-end test
-```
-
-To apply formatting:
-
-```bash
-bun run format
-```
-
-## Run locally
+## Local stdio mode
 
 ```bash
 CODEM_WORKSPACE_ROOT=/absolute/path/to/project bun run dev
 ```
 
-Bun also loads `.env` automatically when the server starts from the repository root.
-
-The server communicates on stdout using MCP JSON-RPC. Diagnostics are written only to stderr.
-
-## Run with Docker
-
-Build the image:
-
-```bash
-docker build -t codem-mcp .
-```
-
-Run the stdio server and mount the authorized project at `/workspace`:
-
-```bash
-docker run --rm -i \
-  -e CODEM_WORKSPACE_ROOT=/workspace \
-  -v /absolute/path/to/project:/workspace \
-  codem-mcp
-```
-
-The image runs as the unprivileged `bun` user. No network port is exposed because the MVP uses stdio. Commands invoked through `terminal.exec` run inside the container, not on the Docker host.
-
-Use a read-only volume while testing read-only tools:
-
-```bash
-docker run --rm -i \
-  -e CODEM_WORKSPACE_ROOT=/workspace \
-  -v /absolute/path/to/project:/workspace:ro \
-  codem-mcp
-```
-
-## Example MCP client configuration
-
-### Local Bun process
+Example MCP client configuration:
 
 ```json
 {
@@ -131,65 +52,134 @@ docker run --rm -i \
 }
 ```
 
-### Docker process
+Diagnostics are written to stderr so stdout remains valid MCP stdio traffic.
 
-```json
-{
-  "mcpServers": {
-    "code-m": {
-      "command": "docker",
-      "args": [
-        "run",
-        "--rm",
-        "-i",
-        "-e",
-        "CODEM_WORKSPACE_ROOT=/workspace",
-        "-v",
-        "/absolute/path/to/project:/workspace",
-        "codem-mcp"
-      ]
-    }
-  }
-}
+## One-container HTTP deployment
+
+Build the image:
+
+```bash
+docker build -t codem-mcp .
 ```
 
-Use absolute paths in host configuration. Tool arguments such as `path` and `cwd` remain relative to `CODEM_WORKSPACE_ROOT`.
+Create persistent directories and strong secrets:
+
+```bash
+mkdir -p ./codem-data ./workspace
+openssl rand -base64 48   # CODEM_SECRET_KEY
+openssl rand -base64 32   # CODEM_SETUP_TOKEN
+```
+
+Run CodeM behind an HTTPS reverse proxy:
+
+```bash
+docker run -d \
+  --name codem \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  -e CODEM_TRANSPORT=http \
+  -e CODEM_PUBLIC_URL=https://codem.example.com \
+  -e CODEM_SECRET_KEY='replace-with-the-first-generated-secret' \
+  -e CODEM_SETUP_TOKEN='replace-with-the-second-generated-token' \
+  -e CODEM_WORKSPACE_ROOT=/workspace \
+  -v "$PWD/codem-data:/data" \
+  -v "$PWD/workspace:/workspace" \
+  codem-mcp
+```
+
+The default database is `/data/codem.sqlite`. Keep `/data` on a persistent volume. `CODEM_PUBLIC_URL` must be the public origin without a path, query, or fragment.
+
+After the container is reachable:
+
+1. Open `https://codem.example.com/setup?setup_token=...` once to create the administrator account.
+2. Remove or rotate `CODEM_SETUP_TOKEN` after bootstrap.
+3. Complete GitHub App setup from `/setup` when GitHub access is needed.
+4. Configure the coding client with `https://codem.example.com/mcp`.
+5. Approve the `codem:read` consent request during OAuth authorization.
+
+Avoid sharing or logging the setup URL because its query contains the bootstrap token.
+
+Health check:
+
+```bash
+curl https://codem.example.com/health
+```
+
+See [Deployment](docs/deployment.md) for Coolify, external OIDC, migration, and scaling guidance.
+
+## Authentication
+
+### Embedded OAuth
+
+Embedded OAuth is the default. It provides:
+
+- dynamic client registration with HTTPS or loopback redirect validation
+- administrator login sessions
+- explicit consent with CSRF-bound, single-use authorization requests
+- persisted grants
+- authorization-code flow with PKCE
+- single-use authorization codes and rotating refresh tokens
+
+Embedded OAuth grants `codem:read`. It does not grant `codem:execute` in this release.
+
+### External OIDC
+
+Advanced deployments can use token introspection by setting `CODEM_AUTH_PROVIDER=external-oidc` and the issuer, introspection endpoint, client ID, and client secret. Introspected tokens must include an `aud` or `resource` value matching the MCP URL.
+
+## GitHub App
+
+The preferred self-hosted path is the `/setup` wizard. Environment-based GitHub App configuration remains available for automated deployments:
+
+```env
+GITHUB_APP_ID=12345
+GITHUB_APP_INSTALLATION_ID=67890
+GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+```
+
+GitHub installation tokens and private keys stay server-side and are never returned through MCP.
+
+## Important environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CODEM_TRANSPORT` | `stdio` | `stdio` or `http` |
+| `CODEM_WORKSPACE_ROOT` | Current directory | Authorized workspace root |
+| `CODEM_PUBLIC_URL` | — | Required public origin in HTTP mode |
+| `CODEM_SECRET_KEY` | — | Required application encryption secret in HTTP mode |
+| `CODEM_SETUP_TOKEN` | — | Bootstrap guard for `/setup` |
+| `CODEM_DATA_DIR` | `/data` | Persistent application state directory |
+| `CODEM_DATABASE_URL` | `file:/data/codem.sqlite` | SQLite database URL |
+| `CODEM_OUTBOUND_HTTP_TIMEOUT_MS` | `10000` | OAuth/GitHub request deadline |
+| `CODEM_ALLOW_REMOTE_TERMINAL` | `false` | Additional remote-terminal policy switch |
+
+Copy `.env.example` for the complete list.
+
+## Storage, backup, and scaling
+
+SQLite is the implemented production adapter. Run one writable CodeM replica against a SQLite volume. Do not mount the same database into multiple application replicas.
+
+Read [Backup and restore](docs/backup-and-restore.md) before upgrades. A PostgreSQL-compatible application boundary exists for future work, but a production PostgreSQL adapter is not shipped in this release.
 
 ## Repository layout
 
 ```text
-code-m/
-├── apps/
-│   └── mcp-server/              # MCP composition root and tools
-├── packages/
-│   ├── core/                    # portable contracts and workspace policy
-│   └── adapters/                # Bun process adapter
-├── tests/
-│   └── e2e/                     # real stdio client/server test
-├── Dockerfile
-├── .dockerignore
-├── .env.example
-└── docs/
-    ├── architecture.md
-    ├── tool-catalog.md
-    ├── terminal-executor.md
-    ├── security-model.md
-    ├── roadmap.md
-    ├── adr/
-    └── superpowers/plans/
+apps/mcp-server/       HTTP/stdio composition root, auth, GitHub, SQLite
+packages/core/         portable contracts and workspace policy
+packages/adapters/     Bun process adapter
+tests/e2e/             stdio and HTTP boundary tests
+docs/                  architecture, deployment, security, operations
 ```
 
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Deployment](docs/deployment.md)
+- [Backup and restore](docs/backup-and-restore.md)
+- [Security model](docs/security-model.md)
 - [Tool catalog](docs/tool-catalog.md)
 - [Terminal executor](docs/terminal-executor.md)
-- [Security model](docs/security-model.md)
-- [MVP roadmap](docs/roadmap.md)
-- [MVP implementation plan](docs/superpowers/plans/2026-07-20-codem-mvp.md)
-- [ADR 0001: Bun and TypeScript](docs/adr/0001-bun-typescript.md)
-- [ADR 0002: Modular monolith](docs/adr/0002-modular-monolith.md)
+- [Roadmap](docs/roadmap.md)
 
-## MVP boundary
+## Current boundaries
 
-This branch is a local feasibility release. It does not yet include Streamable HTTP, OAuth, persistent PTY sessions, patch application, or Git mutation tools. The Docker image reduces host exposure but is not yet a hardened multi-tenant sandbox. Remote terminal execution must not be enabled until authentication, authorization, resource limits, and a dedicated sandbox executor are implemented.
+CodeM is suitable for a single-operator, self-hosted deployment. It does not yet provide a hardened multi-tenant sandbox, rate limiting, distributed jobs, production PostgreSQL support, or horizontally scalable shared state.

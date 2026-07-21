@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { ProcessRunner } from "@codem/core";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { CODEM_APPLICATION, runtimeVersion } from "./application-metadata.ts";
 import { EmbeddedAuthorizationServer } from "./auth/embedded.ts";
 import { IntrospectionAccessTokenVerifier, UnauthorizedError } from "./auth/introspection.ts";
 import {
@@ -11,6 +12,7 @@ import type { CodeMHttpConfig, ExternalAuthConfig } from "./config.ts";
 import { createCodeMServer } from "./create-server.ts";
 import type { GitHubConnectionProvider } from "./create-server.ts";
 import type { GitHubSetupController } from "./github/github-setup-controller.ts";
+import { SQLiteOAuthStore } from "./storage/sqlite-oauth-store.ts";
 
 export interface HttpServerDependencies {
   workspaceRoot: string;
@@ -132,6 +134,7 @@ export function createHttpHandler(
     config.auth.provider === "embedded"
       ? new EmbeddedAuthorizationServer({
           database: dependencies.database,
+          store: new SQLiteOAuthStore(dependencies.database),
           config: config as CodeMHttpConfig & {
             auth: Extract<CodeMHttpConfig["auth"], { provider: "embedded" }>;
           },
@@ -144,6 +147,7 @@ export function createHttpHandler(
           clientId: (config.auth as ExternalAuthConfig).clientId,
           clientSecret: (config.auth as ExternalAuthConfig).clientSecret,
           resource: config.mcpUrl,
+          timeoutMs: config.outboundHttpTimeoutMs,
         })
       : undefined;
   const metadata = createProtectedResourceMetadata({
@@ -160,7 +164,13 @@ export function createHttpHandler(
     }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ status: "ok", transport: "http", database: "ready" });
+      return json({
+        status: "ok",
+        application: CODEM_APPLICATION,
+        runtime: runtimeVersion(),
+        transport: "http",
+        database: "ready",
+      });
     }
 
     if (request.method === "GET" && url.pathname === "/.well-known/oauth-protected-resource") {
@@ -195,7 +205,6 @@ export function createHttpHandler(
         github: dependencies.github,
       });
       const transport = new WebStandardStreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
         enableJsonResponse: true,
       });
       await server.connect(transport);

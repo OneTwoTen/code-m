@@ -1,84 +1,133 @@
-# Security Model
+# Security model
 
-## Trust boundaries
+## Deployment assumption
 
-CodeM treats MCP clients, model-generated arguments, repository content, command output, and downloaded dependencies as untrusted.
+The current release targets a single-operator, self-hosted CodeM instance. MCP clients, model-generated arguments, repository content, command output, OAuth clients, and downloaded dependencies are untrusted.
 
-The MCP server, policy engine, credential broker, and sandbox controller are trusted components. A local workspace may be trusted for development convenience, but remote execution must assume malicious repository content.
+The CodeM process, its application secret, SQLite volume, reverse proxy, and deployment operator are trusted. The current process runner is not a hardened multi-tenant sandbox.
 
-## Permission model
+## Authentication and authorization
 
-Capabilities are granted independently:
+HTTP mode supports embedded OAuth and external token introspection.
 
-- read workspace
-- write workspace
-- execute process
-- use network
-- access credentials
-- perform destructive operations
+Embedded OAuth provides:
 
-A tool call is allowed only when both the caller and the selected tool possess the required capabilities.
+- administrator sessions stored as token hashes
+- dynamic client registration with HTTPS or loopback redirect validation
+- authorization-code flow with PKCE S256
+- explicit consent with persisted grants
+- CSRF-bound, session-bound, expiring, single-use authorization requests
+- single-use authorization codes
+- rotating, single-use refresh tokens
 
-## Required controls
+Code consumption and refresh rotation use conditional database updates inside SQLite transactions. A replay returns `invalid_grant`.
 
-- Canonical workspace-boundary validation, including symlink handling.
-- Schema validation for every tool input and output.
-- `shell: false` semantics for the MVP terminal executor.
-- Explicit environment allowlist.
-- Timeout, process, memory, output, and concurrency limits.
-- Network disabled by default in remote sandboxes.
-- Secret redaction for returned output, artifacts, and audit previews.
-- Approval requirement for broad terminal execution and destructive writes.
-- Per-session ownership for jobs, artifacts, and future terminal sessions.
-- Authentication, origin checks, host checks, and rate limits for HTTP transport.
+External introspection accepts only active tokens whose `aud` or `resource` matches the complete MCP URL. A response without either claim is rejected.
+
+HTTP tools require scopes:
+
+- `codem:read` for system, workspace-read, and GitHub status tools
+- `codem:execute` for terminal execution
+
+Embedded OAuth cannot grant `codem:execute` in this release.
+
+## HTTP controls
+
+- Public URLs require HTTPS outside localhost.
+- `CODEM_PUBLIC_URL` must be a root origin; unsupported base paths fail at startup.
+- Requests must use an allowed `Host` value.
+- Protected-resource metadata and Bearer challenges identify the exact MCP resource.
+- OAuth redirects accept HTTPS and loopback HTTP only.
+- Authentication and consent responses use `Cache-Control: no-store`.
+- Consent HTML applies a restrictive content security policy and `X-Content-Type-Options: nosniff`.
+- Outbound OAuth and GitHub requests have bounded deadlines.
+
+The deployment proxy must preserve the original Host header, terminate HTTPS securely, enforce reasonable body/rate limits, and avoid logging bootstrap or OAuth secrets.
+
+## Setup token
+
+`CODEM_SETUP_TOKEN` gates the initial `/setup` route. It is independent from `CODEM_SECRET_KEY`.
+
+The browser bootstrap query is sensitive because URLs may be retained by browser history, reverse proxies, analytics, screenshots, or chat logs. Use it only over HTTPS, complete setup promptly, then remove or rotate the token.
+
+## Secret handling
+
+- Passwords are hashed with Argon2id.
+- Sessions, OAuth codes, access tokens, refresh tokens, setup states, and CSRF/request tokens are stored as hashes where verification does not require plaintext.
+- GitHub App configuration stored in SQLite is encrypted with `CODEM_SECRET_KEY`.
+- GitHub private keys, installation tokens, OAuth client secrets, and access tokens are never returned by MCP tools.
+- The process adapter receives a small environment allowlist rather than the full server environment.
+- Safe error responses omit remote response bodies and credentials.
+
+Backups are credential-bearing data. Protect the database and `CODEM_SECRET_KEY` separately and with equivalent access controls.
+
+## Workspace boundary
+
+Workspace paths are resolved against the configured root. Existing symlinks are canonicalized before access. Attempts to traverse outside the authorized workspace are rejected.
+
+The current public read tool supports bounded UTF-8 regular files and rejects binary content.
+
+## Process execution
+
+The terminal contract separates executable and argument arrays; CodeM does not pass an opaque shell string. Execution applies:
+
+- workspace-bound working directory
+- reduced environment
+- stdin byte limit
+- stdout and stderr byte limits
+- maximum wall-clock timeout
+- cancellation handling
+- detached POSIX process groups when supported
+- `SIGTERM` followed by `SIGKILL` after a bounded grace period
+
+Remote terminal is disabled unless `CODEM_ALLOW_REMOTE_TERMINAL=true`, and embedded OAuth still cannot authorize it. These controls limit execution but do not safely isolate mutually untrusted tenants. A dedicated sandbox executor is required before enabling broad remote execution.
+
+## SQLite and concurrency
+
+SQLite is supported for one writable CodeM replica. Sharing one database across multiple application replicas is outside the security and consistency model.
+
+Authorization-code consumption and refresh rotation are atomic at the database boundary, but horizontal scaling requires a future shared database adapter and broader distributed-state review.
 
 ## Threats addressed
 
 ### Path traversal and symlink escape
 
-All workspace paths are normalized and resolved against an authorized root. Existing symlinks are resolved before access. Operations that create paths validate the nearest existing parent and recheck before mutation.
+Canonical workspace resolution prevents a client from selecting arbitrary host paths through `..`, absolute paths, or existing symlinks.
 
 ### Command injection
 
-The public terminal contract separates executable and arguments. Shell command strings are not accepted. Specialized quality and Git tools build commands from validated templates.
+Executable and arguments remain separate. Shell metacharacters in an argument are not interpreted by a shell.
+
+### Token replay
+
+Pending consent requests, authorization codes, and refresh tokens are single-use. PKCE binds an authorization code to the verifier held by the client.
+
+### Token substitution
+
+External tokens require an audience/resource matching the MCP URL. Embedded access tokens carry the same resource and are checked on every MCP request.
 
 ### Resource exhaustion
 
-Execution is bounded by wall-clock timeout, output byte limits, process concurrency, and sandbox CPU/memory/process quotas.
+Terminal execution, output, stdin, and outbound network requests are bounded. Deployment-level request size, rate, CPU, memory, and concurrency controls remain the operator's responsibility.
 
 ### Secret leakage
 
-Server environment is not forwarded wholesale. Credentials use explicit scoped injection. Output and metadata pass through redaction before leaving the trusted boundary.
+Secrets stay in server-side storage and are omitted from MCP results. Operators must also configure proxy logs, backups, error collection, and container access appropriately.
 
-### Cross-session access
+## Known gaps
 
-Workspace roots, job IDs, artifacts, and terminal sessions are associated with an authenticated actor/session. Possessing an identifier alone does not grant access.
+The following controls are not complete:
 
-### Repository-triggered attacks
+- hardened per-job sandboxing
+- application-level rate limiting and request-size middleware
+- full audit-event persistence
+- multi-user role and tenant isolation
+- automated secret rotation
+- production PostgreSQL adapter and multi-replica coordination
+- artifact persistence and redaction pipeline
 
-Remote execution occurs in a non-root sandbox with a controlled filesystem, restricted capabilities, and network disabled unless granted. Dependency lifecycle scripts are treated as executable code.
+Treat these as prerequisites for a public, multi-tenant remote coding service.
 
-## Local versus remote mode
+## Security tests
 
-Local stdio mode may run processes directly for developer convenience, while still enforcing path, timeout, environment, and output policies.
-
-Remote HTTP mode must use sandboxed execution. CodeM must refuse remote `terminal.exec` when no sandbox executor is configured.
-
-## Audit requirements
-
-Audit events record request identity, tool, policy decision, affected workspace-relative paths, command metadata after redaction, timings, result status, and artifact identifiers. Raw source content, stdin, secrets, and full terminal output are excluded by default.
-
-## Security testing
-
-The test suite must cover:
-
-- `../` traversal
-- absolute path injection
-- symlink escape
-- command argument metacharacters remaining literal
-- environment secret rejection
-- timeout and cancellation
-- output truncation without deadlock
-- unauthorized write and execute calls
-- cross-session artifact access
-- remote execution without sandbox configuration
+The repository currently covers workspace traversal, output truncation, timeout/cancellation, process escalation, stdin limits, HTTP host and OAuth redirect validation, authentication challenges, introspection audience enforcement, consent CSRF, single-use authorization codes, refresh rotation, and GitHub/OAuth timeout errors.

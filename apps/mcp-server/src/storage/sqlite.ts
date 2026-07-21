@@ -117,6 +117,38 @@ const migrations = [
         ON github_setup_states(expires_at);
     `,
   },
+  {
+    version: 3,
+    sql: `
+      CREATE TABLE IF NOT EXISTS oauth_grants (
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+        resource TEXT NOT NULL,
+        scopes TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, client_id, resource)
+      );
+
+      CREATE TABLE IF NOT EXISTS oauth_authorization_requests (
+        request_hash TEXT PRIMARY KEY,
+        csrf_hash TEXT NOT NULL,
+        session_hash TEXT NOT NULL,
+        client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        redirect_uri TEXT NOT NULL,
+        resource TEXT NOT NULL,
+        scopes TEXT NOT NULL,
+        state TEXT,
+        code_challenge TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        consumed_at TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_oauth_authorization_requests_expiry
+        ON oauth_authorization_requests(expires_at);
+    `,
+  },
 ] as const;
 
 function sqlitePath(databaseUrl: string): string {

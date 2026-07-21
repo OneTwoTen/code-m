@@ -31,7 +31,10 @@ jobs:
 
       - name: Typecheck
         id: typecheck
-        run: bun run typecheck 2>&1 | tee typecheck.log
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run typecheck 2>&1 | tee typecheck.log
 
       - name: Upload typecheck log
         if: failure() && steps.typecheck.outcome == 'failure'
@@ -42,7 +45,10 @@ jobs:
 
       - name: Test
         id: test
-        run: bun run test 2>&1 | tee test.log
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run test 2>&1 | tee test.log
 
       - name: Upload test log
         if: failure() && steps.test.outcome == 'failure'

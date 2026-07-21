@@ -1,6 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { BunProcessRunner } from "@codem/adapters";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { CODEM_APPLICATION } from "./application-metadata.ts";
 import { loadCodeMConfig } from "./config.ts";
 import { createCodeMServer } from "./create-server.ts";
 import { GitHubAppClient } from "./github/github-app.ts";
@@ -18,7 +19,11 @@ async function main(): Promise<void> {
   if (config.transport === "http") {
     const storage = await openCodeMDatabase(config.databaseUrl, config.dataDir);
     const githubStore = new GitHubConfigStore(storage.database, config.secretKey);
-    const github = new DatabaseBackedGitHubProvider(config.github, githubStore);
+    const github = new DatabaseBackedGitHubProvider(
+      config.github,
+      githubStore,
+      config.outboundHttpTimeoutMs,
+    );
     const githubSetup = new GitHubSetupController(storage.database, config, githubStore, github);
     const httpServer = startHttpServer(config, {
       workspaceRoot,
@@ -34,7 +39,7 @@ async function main(): Promise<void> {
     process.once("SIGINT", close);
     process.once("SIGTERM", close);
     console.error(
-      `CodeM MCP server 0.3.0 listening on ${httpServer.hostname}:${httpServer.port}; MCP URL: ${config.mcpUrl.href}`,
+      `CodeM MCP server ${CODEM_APPLICATION.version} listening on ${httpServer.hostname}:${httpServer.port}; MCP URL: ${config.mcpUrl.href}`,
     );
     return;
   }
@@ -43,7 +48,9 @@ async function main(): Promise<void> {
   const server = createCodeMServer({ workspaceRoot, processRunner, github });
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(`CodeM MCP server 0.3.0 running for workspace: ${workspaceRoot}`);
+  console.error(
+    `CodeM MCP server ${CODEM_APPLICATION.version} running for workspace: ${workspaceRoot}`,
+  );
 }
 
 main().catch((error: unknown) => {

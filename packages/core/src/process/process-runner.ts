@@ -13,6 +13,8 @@ export interface ProcessExecutionRequest {
   timeoutMs: number;
   stdoutLimitBytes: number;
   stderrLimitBytes: number;
+  stdinLimitBytes: number;
+  terminationGraceMs: number;
 }
 
 export interface ProcessExecutionResult {
