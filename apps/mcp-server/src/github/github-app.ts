@@ -1,9 +1,6 @@
 import { createSign } from "node:crypto";
 import type { GitHubAppConfig } from "../config.ts";
-import {
-  fetchWithTimeout,
-  OutboundHttpTimeoutError,
-} from "../http/fetch-with-timeout.ts";
+import { fetchWithTimeout, OutboundHttpTimeoutError } from "../http/fetch-with-timeout.ts";
 
 interface InstallationTokenResponse {
   token: string;
