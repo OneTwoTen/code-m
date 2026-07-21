@@ -8,6 +8,13 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const temporaryDirectories: string[] = [];
 const clients: Client[] = [];
 
+const GITHUB_ENVIRONMENT_KEYS = [
+  "GITHUB_APP_ID",
+  "GITHUB_APP_PRIVATE_KEY",
+  "GITHUB_APP_INSTALLATION_ID",
+  "GITHUB_API_URL",
+] as const;
+
 afterEach(async () => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })));
@@ -24,6 +31,7 @@ async function createConnectedClient() {
     ),
   );
   environment.CODEM_WORKSPACE_ROOT = workspace;
+  for (const key of GITHUB_ENVIRONMENT_KEYS) delete environment[key];
 
   const transport = new StdioClientTransport({
     command: process.execPath,
