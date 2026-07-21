@@ -13,9 +13,9 @@ export interface GitHubConnectionProvider {
 export interface CodeMServerDependencies {
   workspaceRoot: string;
   processRunner: ProcessRunner;
-  remoteMode?: boolean;
-  allowRemoteTerminal?: boolean;
-  github?: GitHubConnectionProvider;
+  remoteMode?: boolean | undefined;
+  allowRemoteTerminal?: boolean | undefined;
+  github?: GitHubConnectionProvider | undefined;
 }
 
 function errorResult(error: unknown) {
