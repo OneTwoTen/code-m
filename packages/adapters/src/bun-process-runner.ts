@@ -10,6 +10,8 @@ interface CollectedStream {
   truncated: boolean;
 }
 
+type TerminationSignal = "SIGTERM" | "SIGKILL";
+
 async function collectStream(
   stream: ReadableStream<Uint8Array>,
   limitBytes: number,
@@ -47,14 +49,24 @@ async function collectStream(
   };
 }
 
+function stdinSize(value: string | undefined): number {
+  return value === undefined ? 0 : new TextEncoder().encode(value).byteLength;
+}
+
 export class BunProcessRunner implements ProcessRunner {
   async execute(
     request: ProcessExecutionRequest,
     context: ExecutionContext,
   ): Promise<ProcessExecutionResult> {
+    if (stdinSize(request.stdin) > request.stdinLimitBytes) {
+      throw new Error("Process stdin exceeds the configured byte limit.");
+    }
+
     const startedAt = performance.now();
     let timedOut = false;
     let cancelled = false;
+    let terminationStarted = false;
+    let escalation: ReturnType<typeof setTimeout> | undefined;
 
     const child = Bun.spawn({
       cmd: [request.command, ...request.args],
@@ -63,47 +75,70 @@ export class BunProcessRunner implements ProcessRunner {
       stdin: request.stdin === undefined ? "ignore" : new Blob([request.stdin]),
       stdout: "pipe",
       stderr: "pipe",
+      detached: process.platform !== "win32",
     });
 
-    const kill = () => {
+    const signalProcessTree = (signal: TerminationSignal) => {
+      if (process.platform !== "win32") {
+        try {
+          process.kill(-child.pid, signal);
+          return;
+        } catch {
+          // The process group may already be gone or unavailable.
+        }
+      }
+
       try {
-        child.kill();
+        child.kill(signal);
       } catch {
         // Process may already have exited.
       }
     };
 
+    const terminate = () => {
+      if (terminationStarted) return;
+      terminationStarted = true;
+      signalProcessTree("SIGTERM");
+      escalation = setTimeout(() => {
+        signalProcessTree("SIGKILL");
+      }, request.terminationGraceMs);
+    };
+
     const timeout = setTimeout(() => {
       timedOut = true;
-      kill();
+      terminate();
     }, request.timeoutMs);
 
     const onAbort = () => {
       cancelled = true;
-      kill();
+      terminate();
     };
 
     context.signal.addEventListener("abort", onAbort, { once: true });
+    if (context.signal.aborted) onAbort();
 
-    const [stdout, stderr, exitCode] = await Promise.all([
-      collectStream(child.stdout, request.stdoutLimitBytes),
-      collectStream(child.stderr, request.stderrLimitBytes),
-      child.exited,
-    ]);
+    try {
+      const [stdout, stderr, exitCode] = await Promise.all([
+        collectStream(child.stdout, request.stdoutLimitBytes),
+        collectStream(child.stderr, request.stderrLimitBytes),
+        child.exited,
+      ]);
 
-    clearTimeout(timeout);
-    context.signal.removeEventListener("abort", onAbort);
-
-    return {
-      exitCode,
-      signal: null,
-      stdout: stdout.text,
-      stderr: stderr.text,
-      durationMs: performance.now() - startedAt,
-      timedOut,
-      cancelled,
-      stdoutTruncated: stdout.truncated,
-      stderrTruncated: stderr.truncated,
-    };
+      return {
+        exitCode,
+        signal: null,
+        stdout: stdout.text,
+        stderr: stderr.text,
+        durationMs: performance.now() - startedAt,
+        timedOut,
+        cancelled,
+        stdoutTruncated: stdout.truncated,
+        stderrTruncated: stderr.truncated,
+      };
+    } finally {
+      clearTimeout(timeout);
+      if (escalation) clearTimeout(escalation);
+      context.signal.removeEventListener("abort", onAbort);
+    }
   }
 }
