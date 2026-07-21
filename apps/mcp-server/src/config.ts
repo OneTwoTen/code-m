@@ -47,6 +47,7 @@ export interface CodeMHttpConfig extends CodeMBaseConfig {
   databaseUrl: string;
   auth: EmbeddedAuthConfig | ExternalAuthConfig;
   allowRemoteTerminal: boolean;
+  outboundHttpTimeoutMs: number;
 }
 
 export type CodeMConfig = CodeMStdioConfig | CodeMHttpConfig;
@@ -64,12 +65,22 @@ function parseBoolean(value: string | undefined, fallback = false): boolean {
   throw new Error(`Expected boolean value, received ${value}.`);
 }
 
-function parsePort(value: string | undefined): number {
-  const parsed = Number(value ?? "3000");
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65_535) {
-    throw new Error("CODEM_HTTP_PORT must be an integer between 1 and 65535.");
+function parseInteger(
+  value: string | undefined,
+  name: string,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const parsed = Number(value ?? String(fallback));
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${name} must be an integer between ${minimum} and ${maximum}.`);
   }
   return parsed;
+}
+
+function parsePort(value: string | undefined): number {
+  return parseInteger(value, "CODEM_HTTP_PORT", 3000, 1, 65_535);
 }
 
 function parseUrl(value: string, name: string): URL {
@@ -172,5 +183,12 @@ export function loadCodeMConfig(
     databaseUrl,
     auth,
     allowRemoteTerminal: parseBoolean(env.CODEM_ALLOW_REMOTE_TERMINAL, false),
+    outboundHttpTimeoutMs: parseInteger(
+      env.CODEM_OUTBOUND_HTTP_TIMEOUT_MS,
+      "CODEM_OUTBOUND_HTTP_TIMEOUT_MS",
+      10_000,
+      1,
+      120_000,
+    ),
   };
 }
