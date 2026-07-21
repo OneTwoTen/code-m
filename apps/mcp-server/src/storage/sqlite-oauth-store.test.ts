@@ -13,7 +13,8 @@ afterEach(async () => {
 async function fixture() {
   const dataDir = await mkdtemp(join(tmpdir(), "codem-oauth-store-"));
   temporaryDirectories.push(dataDir);
-  const storage = await openCodeMDatabase(`file:${join(dataDir, "codem.sqlite")}`, dataDir);
+  const databaseUrl = `file:${join(dataDir, "codem.sqlite")}`;
+  const storage = await openCodeMDatabase(databaseUrl, dataDir);
   storage.database.run(
     "INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)",
     ["user_1", "admin", "hash", "admin", new Date().toISOString()],
@@ -27,7 +28,12 @@ async function fixture() {
       new Date().toISOString(),
     ],
   );
-  return { storage, store: new SQLiteOAuthStore(storage.database) };
+  return {
+    dataDir,
+    databaseUrl,
+    storage,
+    store: new SQLiteOAuthStore(storage.database),
+  };
 }
 
 describe("SQLiteOAuthStore", () => {
@@ -120,6 +126,47 @@ describe("SQLiteOAuthStore", () => {
         }),
       ).toBeUndefined();
     } finally {
+      storage.close();
+    }
+  });
+
+  test("enforces single-use exchanges across independent SQLite connections", async () => {
+    const { dataDir, databaseUrl, storage, store } = await fixture();
+    const secondStorage = await openCodeMDatabase(databaseUrl, dataDir);
+    const secondStore = new SQLiteOAuthStore(secondStorage.database);
+    try {
+      const code = store.createAuthorizationCode({
+        clientId: "client_1",
+        userId: "user_1",
+        redirectUri: "https://client.example/callback",
+        resource: "https://codem.example/mcp",
+        scopes: ["codem:read"],
+        codeChallenge: "challenge",
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      const exchange = {
+        code,
+        clientId: "client_1",
+        redirectUri: "https://client.example/callback",
+        codeChallenge: "challenge",
+        now: new Date(),
+      };
+
+      const first = store.exchangeAuthorizationCode(exchange);
+      expect(first?.accessToken).toBeTruthy();
+      expect(secondStore.exchangeAuthorizationCode(exchange)).toBeUndefined();
+
+      if (!first) throw new Error("expected token pair");
+      const rotation = {
+        refreshToken: first.refreshToken,
+        clientId: "client_1",
+        now: new Date(),
+      };
+      const rotated = secondStore.rotateRefreshToken(rotation);
+      expect(rotated?.refreshToken).toBeTruthy();
+      expect(store.rotateRefreshToken(rotation)).toBeUndefined();
+    } finally {
+      secondStorage.close();
       storage.close();
     }
   });
