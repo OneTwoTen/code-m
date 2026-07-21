@@ -35,14 +35,12 @@ function pendingFetch(): typeof fetch {
 
 describe("IntrospectionAccessTokenVerifier", () => {
   test("rejects active tokens without an audience or resource claim", async () => {
-    const instance = verifier(
-      (async () =>
-        Response.json({
-          active: true,
-          client_id: "client",
-          scope: "codem:read",
-        })) as typeof fetch,
-    );
+    const instance = verifier((async () =>
+      Response.json({
+        active: true,
+        client_id: "client",
+        scope: "codem:read",
+      })) as typeof fetch);
 
     await expect(instance.verify(authenticatedRequest())).rejects.toThrow(
       "Access token is not intended for this resource.",
@@ -50,15 +48,13 @@ describe("IntrospectionAccessTokenVerifier", () => {
   });
 
   test("accepts a matching audience", async () => {
-    const instance = verifier(
-      (async () =>
-        Response.json({
-          active: true,
-          client_id: "client",
-          scope: "codem:read",
-          aud: [resource.href],
-        })) as typeof fetch,
-    );
+    const instance = verifier((async () =>
+      Response.json({
+        active: true,
+        client_id: "client",
+        scope: "codem:read",
+        aud: [resource.href],
+      })) as typeof fetch);
 
     const result = await instance.verify(authenticatedRequest());
     expect(result.clientId).toBe("client");
