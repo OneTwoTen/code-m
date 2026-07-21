@@ -42,7 +42,7 @@ async function fixture() {
 }
 
 describe("HTTP production boundary", () => {
-  test("reports canonical health and protected-resource metadata", async () => {
+  test("reports canonical health and OAuth metadata", async () => {
     const { config, handler, request } = await fixture();
 
     const health = await handler(request("/health"));
@@ -54,12 +54,22 @@ describe("HTTP production boundary", () => {
       database: "ready",
     });
 
-    const metadata = await handler(request("/.well-known/oauth-protected-resource"));
-    expect(metadata.status).toBe(200);
-    expect(await metadata.json()).toMatchObject({
+    const resourceMetadata = await handler(request("/.well-known/oauth-protected-resource"));
+    expect(resourceMetadata.status).toBe(200);
+    expect(await resourceMetadata.json()).toMatchObject({
       resource: config.mcpUrl.href,
       authorization_servers: [config.publicUrl.href.replace(/\/$/, "")],
+      scopes_supported: ["codem:read"],
       bearer_methods_supported: ["header"],
+    });
+
+    const authorizationMetadata = await handler(
+      request("/.well-known/oauth-authorization-server"),
+    );
+    expect(authorizationMetadata.status).toBe(200);
+    expect(await authorizationMetadata.json()).toMatchObject({
+      issuer: config.publicUrl.href.replace(/\/$/, ""),
+      scopes_supported: ["codem:read"],
     });
   });
 
