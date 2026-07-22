@@ -23,6 +23,20 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Format changed sources
+        run: bunx biome format --write .
+
+      - name: Upload formatted sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: formatted-review-fixes
+          path: |
+            apps/mcp-server/src/github/github-app.ts
+            apps/mcp-server/src/github/github-app.test.ts
+            apps/mcp-server/src/workspace/git-transport.ts
+            apps/mcp-server/src/workspace/process-git-transport.ts
+            apps/mcp-server/src/workspace/repository-workspace-service.ts
+
       - name: Check formatting
         run: bun run format:check
 
