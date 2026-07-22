@@ -44,6 +44,7 @@ export interface CodeMHttpConfig extends CodeMBaseConfig {
   allowedHosts: string[];
   secretKey: string;
   dataDir: string;
+  workspacesDir: string;
   databaseUrl: string;
   auth: EmbeddedAuthConfig | ExternalAuthConfig;
   allowRemoteTerminal: boolean;
@@ -144,13 +145,17 @@ export function loadCodeMConfig(
   if (secretKey.length < 24) throw new Error("CODEM_SECRET_KEY must be at least 24 characters.");
 
   const dataDir = env.CODEM_DATA_DIR?.trim() || "/data";
+  const workspacesDir = env.CODEM_WORKSPACES_DIR?.trim() || join(dataDir, "workspaces");
   const databaseUrl = env.CODEM_DATABASE_URL?.trim() || `file:${join(dataDir, "codem.sqlite")}`;
   const provider = (env.CODEM_AUTH_PROVIDER?.trim() || "embedded") as CodeMAuthProvider;
   if (provider !== "embedded" && provider !== "external-oidc") {
     throw new Error("CODEM_AUTH_PROVIDER must be embedded or external-oidc.");
   }
 
-  const defaultScopes = provider === "embedded" ? ["codem:read"] : ["codem:read", "codem:execute"];
+  const defaultScopes =
+    provider === "embedded"
+      ? ["codem:read", "codem:workspace"]
+      : ["codem:read", "codem:workspace", "codem:execute"];
   const scopes = parseScopes(env.CODEM_AUTH_SCOPES, defaultScopes);
   if (provider === "embedded" && scopes.includes("codem:execute")) {
     throw new Error("Embedded OAuth cannot grant codem:execute in this release.");
@@ -185,6 +190,7 @@ export function loadCodeMConfig(
     allowedHosts: configuredHosts?.length ? configuredHosts : [publicUrl.host],
     secretKey,
     dataDir,
+    workspacesDir,
     databaseUrl,
     auth,
     allowRemoteTerminal: parseBoolean(env.CODEM_ALLOW_REMOTE_TERMINAL, false),
