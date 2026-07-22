@@ -247,13 +247,7 @@ export class ProcessGitTransport implements GitTransport {
   async isDirty(checkoutPath: string, signal: AbortSignal): Promise<boolean> {
     const result = await this.#execute(
       "status",
-      hookSafeArgs([
-        "-C",
-        checkoutPath,
-        "status",
-        "--porcelain=v1",
-        "--untracked-files=normal",
-      ]),
+      hookSafeArgs(["-C", checkoutPath, "status", "--porcelain=v1", "--untracked-files=normal"]),
       checkoutPath,
       signal,
     );
