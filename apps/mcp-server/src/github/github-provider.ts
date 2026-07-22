@@ -10,6 +10,29 @@ import {
 } from "./github-app.ts";
 import type { GitHubConfigStore } from "./github-config-store.ts";
 
+export interface GitHubRepositoryPreviewMetadata {
+  repositoryPreviewCount: number;
+  repositoriesTruncated: boolean;
+  repositoryListingTool: "repository.list";
+}
+
+export type GitHubConnectionStatusWithRepositoryPreview = GitHubConnectionStatus &
+  Partial<GitHubRepositoryPreviewMetadata>;
+
+export function annotateRepositoryPreview(
+  status: GitHubConnectionStatus,
+): GitHubConnectionStatusWithRepositoryPreview {
+  if (status.repositoryCount === undefined) return status;
+
+  const repositoryPreviewCount = status.repositories?.length ?? 0;
+  return {
+    ...status,
+    repositoryPreviewCount,
+    repositoriesTruncated: repositoryPreviewCount < status.repositoryCount,
+    repositoryListingTool: "repository.list",
+  };
+}
+
 function fingerprint(config: GitHubAppConfig): string {
   return `${config.apiUrl}\u0000${config.appId}\u0000${config.installationId}\u0000${config.privateKey}`;
 }
@@ -59,10 +82,10 @@ export class DatabaseBackedGitHubProvider implements GitHubConnectionProvider {
     return client;
   }
 
-  async getConnectionStatus(): Promise<GitHubConnectionStatus> {
+  async getConnectionStatus(): Promise<GitHubConnectionStatusWithRepositoryPreview> {
     const client = this.#client();
     if (!client) return { configured: false, authenticated: false, reachable: false };
-    return client.getConnectionStatus();
+    return annotateRepositoryPreview(await client.getConnectionStatus());
   }
 
   async listRepositories(input: RepositoryListInput): Promise<RepositoryPage> {
