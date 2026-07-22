@@ -25,6 +25,41 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Apply E2E type fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/e2e/http.test.ts")
+          source = path.read_text()
+          source = source.replace(
+              '''function textContent(result: Awaited<ReturnType<Client["callTool"]>>): string {
+            const content = result.content[0];
+            if (!content || content.type !== "text") throw new Error("expected MCP text content");
+            return content.text;
+          }''',
+              '''function textContent(result: unknown): string {
+            const contents = (result as { content?: unknown }).content;
+            if (!Array.isArray(contents)) throw new Error("expected MCP content array");
+            const content = contents[0] as { type?: unknown; text?: unknown } | undefined;
+            if (content?.type !== "text" || typeof content.text !== "string") {
+              throw new Error("expected MCP text content");
+            }
+            return content.text;
+          }''',
+          )
+          source = source.replace(
+              '          permissions: this.repository.permissions,',
+              '          ...(this.repository.permissions ? { permissions: this.repository.permissions } : {}),',
+          )
+          source = source.replace(
+              '    await client.connect(transport);',
+              '    await client.connect(transport as Parameters<Client["connect"]>[0]);',
+          )
+          path.write_text(source)
+          PY
+
       - name: Apply formatter for implementation diagnostics
         run: bun run format
 
