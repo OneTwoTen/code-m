@@ -128,14 +128,7 @@ export class ProcessGitTransport implements GitTransport {
     const result = await this.#withCredential(input.credential, (environment) =>
       this.#execute(
         "clone",
-        [
-          "clone",
-          "--no-checkout",
-          "--origin",
-          "origin",
-          input.cloneUrl,
-          input.checkoutPath,
-        ],
+        ["clone", "--no-checkout", "--origin", "origin", input.cloneUrl, input.checkoutPath],
         dirname(input.checkoutPath),
         input.signal,
         environment,

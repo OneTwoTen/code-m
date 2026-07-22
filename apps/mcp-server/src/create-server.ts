@@ -194,7 +194,11 @@ export function createCodeMServer(dependencies: CodeMServerDependencies): McpSer
         "Clone or safely update one authorized GitHub repository and return a persistent workspaceId.",
       inputSchema: {
         repository: z.string().min(1).describe("Canonical owner/name repository identifier."),
-        ref: z.string().min(1).optional().describe("Branch, tag, or commit. Defaults to the repository default branch."),
+        ref: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Branch, tag, or commit. Defaults to the repository default branch."),
       },
       annotations: {
         readOnlyHint: false,

@@ -47,9 +47,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   ): Promise<WorkspaceRecord | undefined> {
     return [...this.rows.values()].find(
       (row) =>
-        row.userId === userId &&
-        row.repositoryFullName === repositoryFullName &&
-        row.ref === ref,
+        row.userId === userId && row.repositoryFullName === repositoryFullName && row.ref === ref,
     );
   }
 
@@ -194,10 +192,7 @@ describe("RepositoryWorkspaceService", () => {
   test("does not fetch or overwrite a dirty workspace", async () => {
     const { git, service } = await fixture();
     const signal = new AbortController().signal;
-    await service.openRepository(
-      { userId: "usr_one", repository: "owner/repository" },
-      signal,
-    );
+    await service.openRepository({ userId: "usr_one", repository: "owner/repository" }, signal);
     git.dirty = true;
 
     await expect(
@@ -241,10 +236,7 @@ describe("RepositoryWorkspaceService", () => {
   test("serializes concurrent updates for one user, repository, and ref", async () => {
     const { git, service } = await fixture();
     const signal = new AbortController().signal;
-    await service.openRepository(
-      { userId: "usr_one", repository: "owner/repository" },
-      signal,
-    );
+    await service.openRepository({ userId: "usr_one", repository: "owner/repository" }, signal);
 
     let releaseFetch: (() => void) | undefined;
     git.fetchGate = new Promise<void>((resolve) => {

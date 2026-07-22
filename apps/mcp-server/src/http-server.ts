@@ -10,10 +10,7 @@ import {
 } from "./auth/protected-resource.ts";
 import type { CodeMHttpConfig, ExternalAuthConfig } from "./config.ts";
 import { createCodeMServer } from "./create-server.ts";
-import type {
-  GitHubRepositoryProvider,
-  WorkspaceRepositoryProvider,
-} from "./create-server.ts";
+import type { GitHubRepositoryProvider, WorkspaceRepositoryProvider } from "./create-server.ts";
 import type { GitHubSetupController } from "./github/github-setup-controller.ts";
 import { SQLiteOAuthStore } from "./storage/sqlite-oauth-store.ts";
 

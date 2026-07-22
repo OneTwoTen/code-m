@@ -123,10 +123,7 @@ describe("ProcessGitTransport", () => {
     const transport = new ProcessGitTransport(runner);
 
     expect(
-      await transport.isDirty(
-        "/data/workspaces/ws_dirty/repository",
-        new AbortController().signal,
-      ),
+      await transport.isDirty("/data/workspaces/ws_dirty/repository", new AbortController().signal),
     ).toBe(true);
     expect(runner.requests[0]?.env.CODEM_GIT_PASSWORD).toBeUndefined();
   });
@@ -161,13 +158,7 @@ describe("ProcessGitTransport", () => {
         "--verify",
         "refs/tags/release/v1^{commit}",
       ],
-      [
-        "-C",
-        "/data/workspaces/ws_ref/repository",
-        "checkout",
-        "--detach",
-        "abc123def456",
-      ],
+      ["-C", "/data/workspaces/ws_ref/repository", "checkout", "--detach", "abc123def456"],
     ]);
   });
 });
