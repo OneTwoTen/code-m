@@ -17,9 +17,10 @@ describe("loadCodeMConfig", () => {
     expect(config.mcpUrl.href).toBe("https://codem.example.com/mcp");
     expect(config.auth.issuer.href).toBe("https://codem.example.com/");
     expect(config.auth.provider).toBe("embedded");
-    expect(config.auth.scopes).toEqual(["codem:read"]);
+    expect(config.auth.scopes).toEqual(["codem:read", "codem:workspace"]);
     expect(config.allowedHosts).toEqual(["codem.example.com"]);
     expect(config.dataDir).toBe("/data");
+    expect(config.workspacesDir).toBe("/data/workspaces");
     expect(config.databaseUrl).toBe("file:/data/codem.sqlite");
     expect(config.outboundHttpTimeoutMs).toBe(10_000);
   });
@@ -33,7 +34,7 @@ describe("loadCodeMConfig", () => {
     ).toThrow("Embedded OAuth cannot grant codem:execute");
   });
 
-  test("keeps read and execute as external OIDC defaults", () => {
+  test("keeps read, workspace, and execute as external OIDC defaults", () => {
     const config = loadCodeMConfig({
       ...productionEnv,
       CODEM_AUTH_PROVIDER: "external-oidc",
@@ -45,22 +46,25 @@ describe("loadCodeMConfig", () => {
     if (config.transport !== "http" || config.auth.provider !== "external-oidc") {
       throw new Error("expected external HTTP config");
     }
-    expect(config.auth.scopes).toEqual(["codem:read", "codem:execute"]);
+    expect(config.auth.scopes).toEqual(["codem:read", "codem:workspace", "codem:execute"]);
   });
 
-  test("derives the SQLite path from a custom data directory", () => {
+  test("derives SQLite and workspace paths from a custom data directory", () => {
     const config = loadCodeMConfig({ ...productionEnv, CODEM_DATA_DIR: "/state" });
     if (config.transport !== "http") throw new Error("expected HTTP config");
     expect(config.databaseUrl).toBe("file:/state/codem.sqlite");
+    expect(config.workspacesDir).toBe("/state/workspaces");
   });
 
-  test("prefers an explicit database URL", () => {
+  test("prefers explicit database and workspace paths", () => {
     const config = loadCodeMConfig({
       ...productionEnv,
       CODEM_DATABASE_URL: "postgresql://codem:secret@db/codem",
+      CODEM_WORKSPACES_DIR: "/mnt/codem-workspaces",
     });
     if (config.transport !== "http") throw new Error("expected HTTP config");
     expect(config.databaseUrl).toBe("postgresql://codem:secret@db/codem");
+    expect(config.workspacesDir).toBe("/mnt/codem-workspaces");
   });
 
   test("supports a bounded outbound HTTP timeout override", () => {

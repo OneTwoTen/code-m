@@ -1,6 +1,13 @@
+import { CodeMError } from "@codem/core";
 import type { GitHubAppConfig } from "../config.ts";
 import type { GitHubConnectionProvider } from "../create-server.ts";
-import { GitHubAppClient, type GitHubConnectionStatus } from "./github-app.ts";
+import {
+  GitHubAppClient,
+  type GitHubConnectionStatus,
+  type GitHubRepository,
+  type RepositoryListInput,
+  type RepositoryPage,
+} from "./github-app.ts";
 import type { GitHubConfigStore } from "./github-config-store.ts";
 
 function fingerprint(config: GitHubAppConfig): string {
@@ -31,9 +38,9 @@ export class DatabaseBackedGitHubProvider implements GitHubConnectionProvider {
     return this.#environment ?? this.#store.load();
   }
 
-  async getConnectionStatus(): Promise<GitHubConnectionStatus> {
+  #client(): GitHubAppClient | undefined {
     const config = this.resolveConfig();
-    if (!config) return { configured: false, authenticated: false, reachable: false };
+    if (!config) return undefined;
     const key = fingerprint(config);
     if (!this.#cached || this.#cached.fingerprint !== key) {
       this.#cached = {
@@ -41,6 +48,32 @@ export class DatabaseBackedGitHubProvider implements GitHubConnectionProvider {
         client: new GitHubAppClient(config, fetch, this.#timeoutMs),
       };
     }
-    return this.#cached.client.getConnectionStatus();
+    return this.#cached.client;
+  }
+
+  #requiredClient(): GitHubAppClient {
+    const client = this.#client();
+    if (!client) {
+      throw new CodeMError("GITHUB_NOT_CONFIGURED", "GitHub App access is not configured.");
+    }
+    return client;
+  }
+
+  async getConnectionStatus(): Promise<GitHubConnectionStatus> {
+    const client = this.#client();
+    if (!client) return { configured: false, authenticated: false, reachable: false };
+    return client.getConnectionStatus();
+  }
+
+  async listRepositories(input: RepositoryListInput): Promise<RepositoryPage> {
+    return this.#requiredClient().listRepositories(input);
+  }
+
+  async getRepository(fullName: string): Promise<GitHubRepository> {
+    return this.#requiredClient().getRepository(fullName);
+  }
+
+  async withInstallationToken<T>(operation: (token: string) => Promise<T>): Promise<T> {
+    return this.#requiredClient().withInstallationToken(operation);
   }
 }

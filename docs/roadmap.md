@@ -8,7 +8,7 @@ CodeM now proves both local and self-hosted remote MCP workflows:
 - bounded workspace reads and non-interactive process execution
 - embedded OAuth or external token introspection
 - SQLite persistence and startup migrations
-- server-side GitHub App setup and connection checks
+- server-side GitHub App setup, repository discovery, and persistent checkouts
 - one-container deployment with a persistent `/data` volume
 - automated unit, integration, HTTP, stdio, and Docker verification
 
@@ -29,6 +29,8 @@ The supported production shape remains a single-operator, single-replica service
 ### Current tools
 
 - `system.info`
+- `repository.list`
+- `workspace.open_repository`
 - `workspace.read_file`
 - `github.connection_status`
 - `terminal.exec`
@@ -61,6 +63,8 @@ The supported production shape remains a single-operator, single-replica service
 - SQLite WAL mode and ordered migrations
 - application-facing OAuth storage interface
 - encrypted server-side GitHub settings
+- owner-scoped persistent workspace metadata and `/data/workspaces` checkouts
+- credential-safe Git clone/fetch and dirty-workspace protection
 - one-container deployment guide
 - backup and restore runbook
 - HTTP/OAuth/GitHub integration coverage
@@ -121,7 +125,7 @@ PostgreSQL is an extension point, not a delivered feature in the current release
 
 - persistent artifacts and large-output references
 - background jobs and cancellation
-- repository checkout/worktree management
+- workspace listing, lifecycle administration, and advanced worktree management
 - Git mutation tools and approval flows
 - project indexing and semantic search
 - organization/tenant policy

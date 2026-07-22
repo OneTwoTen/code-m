@@ -149,6 +149,54 @@ const migrations = [
         ON oauth_authorization_requests(expires_at);
     `,
   },
+  {
+    version: 4,
+    sql: `
+      ALTER TABLE workspaces RENAME TO workspaces_legacy;
+
+      CREATE TABLE workspaces (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        repository_full_name TEXT NOT NULL,
+        ref TEXT NOT NULL,
+        checkout_path TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('creating', 'ready', 'updating', 'failed')),
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_opened_at TEXT NOT NULL,
+        UNIQUE (user_id, repository_full_name, ref)
+      );
+
+      INSERT INTO workspaces (
+        id, user_id, repository_full_name, ref, checkout_path, status,
+        last_error, created_at, updated_at, last_opened_at
+      )
+      SELECT
+        id,
+        user_id,
+        repository,
+        ref,
+        path,
+        CASE
+          WHEN status IN ('creating', 'ready', 'updating', 'failed') THEN status
+          ELSE 'failed'
+        END,
+        CASE
+          WHEN status IN ('creating', 'ready', 'updating', 'failed') THEN NULL
+          ELSE 'Workspace status was normalized during migration.'
+        END,
+        created_at,
+        updated_at,
+        updated_at
+      FROM workspaces_legacy;
+
+      DROP TABLE workspaces_legacy;
+
+      CREATE INDEX idx_workspaces_user_id
+        ON workspaces(user_id, id);
+    `,
+  },
 ] as const;
 
 function sqlitePath(databaseUrl: string): string {
