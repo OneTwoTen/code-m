@@ -34,6 +34,11 @@ interface CachedToken {
   repositorySelection: string;
 }
 
+interface RepositoryCursor {
+  page: number;
+  limit: number;
+}
+
 export interface GitHubRepositorySummary {
   fullName: string;
   defaultBranch: string;
@@ -100,34 +105,53 @@ function repositorySummary(repository: GitHubApiRepository): GitHubRepositorySum
 
 const CURSOR_PREFIX = "ghrepo_";
 
-function encodeCursor(page: number): string {
-  return `${CURSOR_PREFIX}${base64Url(String(page))}`;
-}
-
-function decodeCursor(cursor: string | undefined): number {
-  if (cursor === undefined) return 1;
-  if (!cursor.startsWith(CURSOR_PREFIX)) {
-    throw new CodeMError("INVALID_INPUT", "Repository cursor is invalid.");
-  }
-  try {
-    const encoded = cursor.slice(CURSOR_PREFIX.length);
-    const decoded = Buffer.from(encoded, "base64url").toString("utf8");
-    const page = Number(decoded);
-    if (!Number.isInteger(page) || page < 1 || encodeCursor(page) !== cursor) {
-      throw new Error("invalid cursor");
-    }
-    return page;
-  } catch {
-    throw new CodeMError("INVALID_INPUT", "Repository cursor is invalid.");
-  }
-}
-
 function boundedLimit(value: number | undefined): number {
   const limit = value ?? 20;
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
     throw new CodeMError("INVALID_INPUT", "Repository limit must be an integer between 1 and 100.");
   }
   return limit;
+}
+
+function encodeCursor(page: number, limit: number): string {
+  return `${CURSOR_PREFIX}${base64Url(JSON.stringify({ page, limit }))}`;
+}
+
+function decodeCursor(cursor: string): RepositoryCursor {
+  if (!cursor.startsWith(CURSOR_PREFIX)) {
+    throw new CodeMError("INVALID_INPUT", "Repository cursor is invalid.");
+  }
+  try {
+    const encoded = cursor.slice(CURSOR_PREFIX.length);
+    const decoded = Buffer.from(encoded, "base64url").toString("utf8");
+    const parsed = JSON.parse(decoded) as Partial<RepositoryCursor>;
+    const page = parsed.page;
+    const limit = parsed.limit;
+    if (
+      !Number.isInteger(page) ||
+      typeof page !== "number" ||
+      page < 1 ||
+      !Number.isInteger(limit) ||
+      typeof limit !== "number" ||
+      limit < 1 ||
+      limit > 100 ||
+      encodeCursor(page, limit) !== cursor
+    ) {
+      throw new Error("invalid cursor");
+    }
+    return { page, limit };
+  } catch {
+    throw new CodeMError("INVALID_INPUT", "Repository cursor is invalid.");
+  }
+}
+
+function repositoryPagination(input: RepositoryListInput): RepositoryCursor {
+  if (!input.cursor) return { page: 1, limit: boundedLimit(input.limit) };
+  const decoded = decodeCursor(input.cursor);
+  if (input.limit !== undefined && boundedLimit(input.limit) !== decoded.limit) {
+    throw new CodeMError("INVALID_INPUT", "Repository limit must match the opaque cursor.");
+  }
+  return decoded;
 }
 
 export function createGitHubAppJwt(config: GitHubAppConfig, now = Date.now()): string {
@@ -174,6 +198,12 @@ export class GitHubAppClient {
         },
       },
     );
+    if (response.status === 401 || response.status === 403 || response.status === 404) {
+      throw new CodeMError(
+        "REPOSITORY_ACCESS_DENIED",
+        "The GitHub App installation could not authenticate.",
+      );
+    }
     if (!response.ok) {
       throw new Error(`GitHub installation token request failed (${response.status}).`);
     }
@@ -194,8 +224,7 @@ export class GitHubAppClient {
   }
 
   async listRepositories(input: RepositoryListInput = {}): Promise<RepositoryPage> {
-    const page = decodeCursor(input.cursor);
-    const limit = boundedLimit(input.limit);
+    const { page, limit } = repositoryPagination(input);
     try {
       return await this.withInstallationToken(async (token) => {
         const url = new URL(`${this.#config.apiUrl}/installation/repositories`);
@@ -219,7 +248,8 @@ export class GitHubAppClient {
         }
 
         const result = (await response.json()) as InstallationRepositoriesResponse;
-        const nextCursor = page * limit < result.total_count ? encodeCursor(page + 1) : undefined;
+        const nextCursor =
+          page * limit < result.total_count ? encodeCursor(page + 1, limit) : undefined;
         return {
           repositories: result.repositories.map(repositorySummary),
           ...(nextCursor ? { nextCursor } : {}),
