@@ -163,7 +163,8 @@ describe("RepositoryWorkspaceService", () => {
       reused: false,
     });
     const row = store.rows.get(opened.workspaceId);
-    expect(row).toMatchObject({ status: "ready", ref: "main", lastError: undefined });
+    expect(row).toMatchObject({ status: "ready", ref: "main" });
+    expect(row?.lastError).toBeUndefined();
     expect(row?.checkoutPath).toBe(join(workspacesDir, "ws_test_1", "repository"));
     expect(JSON.stringify(opened)).not.toContain(github.token);
     expect(git.cloneCalls).toBe(1);
