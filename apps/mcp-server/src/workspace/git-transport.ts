@@ -28,6 +28,13 @@ export class GitTransportError extends Error {
   }
 }
 
+export class GitRefNotFoundError extends GitTransportError {
+  constructor() {
+    super("checkout", "Git ref was not found.");
+    this.name = "GitRefNotFoundError";
+  }
+}
+
 export interface GitTransport {
   clone(input: GitCloneInput): Promise<void>;
   fetch(input: GitFetchInput): Promise<void>;
