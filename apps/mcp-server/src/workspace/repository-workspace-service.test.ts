@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GitHubRepository } from "../github/github-app.ts";
@@ -100,9 +100,11 @@ class FakeGitTransport implements GitTransport {
   cloneCalls = 0;
   fetchCalls = 0;
   checkoutCalls = 0;
+  readonly fetchCloneUrls: string[] = [];
   dirty = false;
   cloneError: Error | undefined;
   checkoutError: Error | undefined;
+  fetchError: Error | undefined;
   fetchGate: Promise<void> | undefined;
 
   async clone(input: GitCloneInput): Promise<void> {
@@ -112,8 +114,10 @@ class FakeGitTransport implements GitTransport {
     await writeFile(join(input.checkoutPath, "README.md"), "repository readme\n");
   }
 
-  async fetch(_input: GitFetchInput): Promise<void> {
+  async fetch(input: GitFetchInput): Promise<void> {
     this.fetchCalls += 1;
+    this.fetchCloneUrls.push(input.cloneUrl);
+    if (this.fetchError) throw this.fetchError;
     if (this.fetchGate) await this.fetchGate;
   }
 
@@ -173,7 +177,7 @@ describe("RepositoryWorkspaceService", () => {
   });
 
   test("reuses and updates a clean workspace for the same repository and ref", async () => {
-    const { git, service } = await fixture();
+    const { github, git, service } = await fixture();
     const signal = new AbortController().signal;
     const first = await service.openRepository(
       { userId: "usr_one", repository: "owner/repository", ref: "release/v1" },
@@ -188,6 +192,7 @@ describe("RepositoryWorkspaceService", () => {
     expect(second.reused).toBe(true);
     expect(git.cloneCalls).toBe(1);
     expect(git.fetchCalls).toBe(1);
+    expect(git.fetchCloneUrls).toEqual([github.repository.cloneUrl]);
   });
 
   test("does not fetch or overwrite a dirty workspace", async () => {
@@ -200,6 +205,34 @@ describe("RepositoryWorkspaceService", () => {
       service.openRepository({ userId: "usr_one", repository: "owner/repository" }, signal),
     ).rejects.toMatchObject({ code: "WORKSPACE_DIRTY" });
     expect(git.fetchCalls).toBe(0);
+  });
+
+  test("preserves local changes when retrying after a failed workspace update", async () => {
+    const { store, git, service } = await fixture();
+    const signal = new AbortController().signal;
+    const opened = await service.openRepository(
+      { userId: "usr_one", repository: "owner/repository" },
+      signal,
+    );
+    const row = store.rows.get(opened.workspaceId);
+    if (!row) throw new Error("expected workspace row");
+
+    git.fetchError = new GitTransportError("fetch", "Git fetch failed.");
+    await expect(
+      service.openRepository({ userId: "usr_one", repository: "owner/repository" }, signal),
+    ).rejects.toMatchObject({ code: "WORKSPACE_UPDATE_FAILED" });
+    expect(store.rows.get(opened.workspaceId)?.status).toBe("failed");
+
+    const localFile = join(row.checkoutPath, "local-change.txt");
+    await writeFile(localFile, "keep this change\n");
+    git.fetchError = undefined;
+    git.dirty = true;
+
+    await expect(
+      service.openRepository({ userId: "usr_one", repository: "owner/repository" }, signal),
+    ).rejects.toMatchObject({ code: "WORKSPACE_DIRTY" });
+    expect(await readFile(localFile, "utf8")).toBe("keep this change\n");
+    expect(git.cloneCalls).toBe(1);
   });
 
   test("marks failed partial clones recoverably and removes the partial checkout", async () => {
