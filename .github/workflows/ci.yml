@@ -41,7 +41,18 @@ jobs:
         run: bun run format:check
 
       - name: Lint
-        run: bun run lint
+        id: lint
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run lint 2>&1 | tee lint.log
+
+      - name: Upload lint log
+        if: failure() && steps.lint.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-log
+          path: lint.log
 
       - name: Typecheck
         id: typecheck
