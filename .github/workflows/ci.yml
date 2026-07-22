@@ -23,6 +23,17 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Format workspace
+        run: |
+          bunx biome format --write .
+          git diff --binary > format.patch
+
+      - name: Upload format patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: format-patch
+          path: format.patch
+
       - name: Check formatting
         run: bun run format:check
 
