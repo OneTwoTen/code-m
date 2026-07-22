@@ -15,6 +15,20 @@ Each tool:
 
 Read, write, and execute tools are kept separate so clients and administrators can grant narrow permissions.
 
+## Delivered repository workspace tools
+
+### `repository.list`
+
+Requires `codem:read` in HTTP mode. Lists GitHub App-authorized repositories with an opaque cursor and a bounded page size. Results expose repository name, default branch, visibility, and pull/push capability only; clone URLs and credentials are not returned.
+
+### `workspace.open_repository`
+
+Requires `codem:workspace` and an authenticated subject. Accepts canonical `owner/name` plus an optional branch, tag, or commit. It creates or safely updates a persistent checkout and returns an opaque `workspaceId`. Dirty workspaces are preserved and rejected instead of reset.
+
+### `workspace.read_file`
+
+In HTTP mode, `workspaceId` is required and resolved through owner-scoped workspace metadata before the existing traversal and symlink checks run. Stdio mode keeps the configured local root fallback.
+
 ## 2. MVP tools
 
 ### `project.inspect`

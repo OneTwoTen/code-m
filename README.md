@@ -7,7 +7,9 @@ CodeM is a self-hosted MCP server for coding agents. It supports local stdio and
 | Capability | Local stdio | Remote HTTP |
 |---|---:|---:|
 | `system.info` | Yes | `codem:read` |
-| `workspace.read_file` | Yes | `codem:read` |
+| `repository.list` | With GitHub configuration | `codem:read` |
+| `workspace.open_repository` | No | `codem:workspace` |
+| `workspace.read_file` | Yes | `codem:read` plus `workspaceId` |
 | `github.connection_status` | Yes | `codem:read` |
 | `terminal.exec` | Yes | Disabled by default |
 
@@ -65,7 +67,7 @@ docker build -t codem-mcp .
 Create persistent directories and strong secrets:
 
 ```bash
-mkdir -p ./codem-data ./workspace
+mkdir -p ./codem-data
 openssl rand -base64 48   # CODEM_SECRET_KEY
 openssl rand -base64 32   # CODEM_SETUP_TOKEN
 ```
@@ -81,13 +83,11 @@ docker run -d \
   -e CODEM_PUBLIC_URL=https://codem.example.com \
   -e CODEM_SECRET_KEY='replace-with-the-first-generated-secret' \
   -e CODEM_SETUP_TOKEN='replace-with-the-second-generated-token' \
-  -e CODEM_WORKSPACE_ROOT=/workspace \
   -v "$PWD/codem-data:/data" \
-  -v "$PWD/workspace:/workspace" \
   codem-mcp
 ```
 
-The default database is `/data/codem.sqlite`. Keep `/data` on a persistent volume. `CODEM_PUBLIC_URL` must be the public origin without a path, query, or fragment.
+The default database is `/data/codem.sqlite`, and Git-backed checkouts live under `/data/workspaces`. Keep the entire `/data` directory on one persistent volume. `CODEM_PUBLIC_URL` must be the public origin without a path, query, or fragment.
 
 After the container is reachable:
 
@@ -95,7 +95,7 @@ After the container is reachable:
 2. Remove or rotate `CODEM_SETUP_TOKEN` after bootstrap.
 3. Complete GitHub App setup from `/setup` when GitHub access is needed.
 4. Configure the coding client with `https://codem.example.com/mcp`.
-5. Approve the `codem:read` consent request during OAuth authorization.
+5. Approve `codem:read` and `codem:workspace` during OAuth authorization.
 
 Avoid sharing or logging the setup URL because its query contains the bootstrap token.
 
@@ -120,7 +120,7 @@ Embedded OAuth is the default. It provides:
 - authorization-code flow with PKCE
 - single-use authorization codes and rotating refresh tokens
 
-Embedded OAuth grants `codem:read`. It does not grant `codem:execute` in this release.
+Embedded OAuth grants `codem:read` and `codem:workspace`. It does not grant `codem:execute` in this release.
 
 ### External OIDC
 
@@ -136,18 +136,19 @@ GITHUB_APP_INSTALLATION_ID=67890
 GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 ```
 
-GitHub installation tokens and private keys stay server-side and are never returned through MCP.
+GitHub installation tokens and private keys stay server-side and are never returned through MCP. Use `repository.list`, then `workspace.open_repository`, and pass the returned `workspaceId` to workspace tools. Clean workspaces are updated on reopen; dirty workspaces are preserved and rejected with `WORKSPACE_DIRTY`.
 
 ## Important environment variables
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `CODEM_TRANSPORT` | `stdio` | `stdio` or `http` |
-| `CODEM_WORKSPACE_ROOT` | Current directory | Authorized workspace root |
+| `CODEM_WORKSPACE_ROOT` | Current directory | Local stdio workspace root |
 | `CODEM_PUBLIC_URL` | — | Required public origin in HTTP mode |
 | `CODEM_SECRET_KEY` | — | Required application encryption secret in HTTP mode |
 | `CODEM_SETUP_TOKEN` | — | Bootstrap guard for `/setup` |
 | `CODEM_DATA_DIR` | `/data` | Persistent application state directory |
+| `CODEM_WORKSPACES_DIR` | `/data/workspaces` | Persistent Git repository checkouts |
 | `CODEM_DATABASE_URL` | `file:/data/codem.sqlite` | SQLite database URL |
 | `CODEM_OUTBOUND_HTTP_TIMEOUT_MS` | `10000` | OAuth/GitHub request deadline |
 | `CODEM_ALLOW_REMOTE_TERMINAL` | `false` | Additional remote-terminal policy switch |
@@ -156,7 +157,7 @@ Copy `.env.example` for the complete list.
 
 ## Storage, backup, and scaling
 
-SQLite is the implemented production adapter. Run one writable CodeM replica against a SQLite volume. Do not mount the same database into multiple application replicas.
+SQLite is the implemented production adapter. Run one writable CodeM replica against a persistent `/data` volume containing both SQLite and repository workspaces. Workspace checkouts may contain uncommitted user changes and must be backed up and access-controlled with the database. Do not mount the same database into multiple application replicas.
 
 Read [Backup and restore](docs/backup-and-restore.md) before upgrades. A PostgreSQL-compatible application boundary exists for future work, but a production PostgreSQL adapter is not shipped in this release.
 

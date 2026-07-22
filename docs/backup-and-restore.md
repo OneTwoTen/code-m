@@ -1,12 +1,12 @@
 # Backup and restore
 
-CodeM stores its default application state in SQLite at `/data/codem.sqlite`. This includes users, sessions, OAuth clients and grants, token records, GitHub setup state, encrypted GitHub configuration, and migration history.
+CodeM stores SQLite state at `/data/codem.sqlite` and persistent repository checkouts under `/data/workspaces`. SQLite includes users, sessions, OAuth clients and grants, token records, GitHub setup state, encrypted GitHub configuration, workspace lifecycle metadata, and migration history. Checkouts may contain uncommitted user changes that do not exist on GitHub.
 
 ## What must be protected
 
 Back up these items together:
 
-1. the persistent `/data` volume
+1. the complete persistent `/data` volume, including `codem.sqlite` and `workspaces/`
 2. `CODEM_SECRET_KEY`
 3. deployment configuration and the image version
 4. external GitHub App or OIDC configuration when it is not stored in the database
@@ -91,6 +91,8 @@ A backup is not complete until it has been restored in a non-production environm
 - registered OAuth clients and grants are present
 - GitHub configuration decrypts and the connection status can be checked
 - a fresh authorization-code flow succeeds
+- a restored ready workspace can read a known file by `workspaceId`
+- expected uncommitted workspace changes are still present
 
 Never validate by exposing a restored production database on a public test URL. Use an isolated host and rotate any credentials that could contact production services.
 
@@ -109,4 +111,5 @@ Encrypt backup archives at rest and restrict access to the same operators who ca
 - Losing only `CODEM_SETUP_TOKEN` does not make an initialized database unusable; it controls bootstrap access.
 - Losing `CODEM_SECRET_KEY` can make encrypted settings unrecoverable even when the SQLite file is intact.
 - OAuth access and refresh tokens stored in a restored backup may still be valid according to their timestamps. Treat backup access as credential access.
+- Repository workspaces may contain private source code and uncommitted changes; protect backup archives as source-code and credential-bearing data.
 - After suspected backup exposure, rotate `CODEM_SECRET_KEY` through a planned migration, rotate GitHub/OIDC credentials, revoke OAuth sessions/tokens, and replace the setup token.

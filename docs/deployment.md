@@ -13,8 +13,9 @@ reverse proxy / platform ingress
     |
     v
 one CodeM container
-    |-- /data/codem.sqlite
-    `-- /workspace
+    `-- /data
+        |-- codem.sqlite
+        `-- workspaces/
 ```
 
 Use one writable CodeM replica and one persistent `/data` volume. The container listens on port 3000 and exposes `/health` and `/mcp`.
@@ -26,8 +27,8 @@ CODEM_TRANSPORT=http
 CODEM_PUBLIC_URL=https://codem.example.com
 CODEM_SECRET_KEY=<long random application secret>
 CODEM_SETUP_TOKEN=<separate bootstrap token>
-CODEM_WORKSPACE_ROOT=/workspace
 CODEM_DATA_DIR=/data
+CODEM_WORKSPACES_DIR=/data/workspaces
 ```
 
 `CODEM_PUBLIC_URL` is the public origin used for OAuth metadata, redirects, resource identifiers, and the MCP URL. It must:
@@ -49,7 +50,6 @@ docker run -d \
   -p 3000:3000 \
   --env-file .env \
   -v codem-data:/data \
-  -v /srv/codem-workspace:/workspace \
   codem-mcp
 ```
 
@@ -67,7 +67,7 @@ Use these application settings:
 | Public domain | Root domain, for example `codem.example.com` |
 | HTTPS | Enabled |
 | Persistent storage | A volume mounted at `/data` |
-| Workspace | A volume or bind mount at `/workspace` |
+| Repository workspaces | Stored inside the persistent `/data` volume |
 | Replicas | `1` |
 
 Set the required environment variables in Coolify. Do not put CodeM behind a path prefix. Forward the original `Host` header because CodeM validates it against the configured public URL.
@@ -100,7 +100,7 @@ Back up `/data` before deploying a build that contains migrations. See [Backup a
 
 Embedded OAuth is the default and the simplest deployment. It includes login, consent, PKCE authorization codes, persisted grants, and rotating refresh tokens.
 
-Only `codem:read` should be configured for embedded OAuth in this release. The HTTP boundary rejects embedded requests for `codem:execute`.
+Configure `codem:read codem:workspace` for embedded OAuth in this release. The HTTP boundary rejects embedded requests for `codem:execute`.
 
 ### External OIDC introspection
 
@@ -112,7 +112,7 @@ CODEM_AUTH_ISSUER=https://auth.example.com
 CODEM_AUTH_INTROSPECTION_URL=https://auth.example.com/oauth2/introspect
 CODEM_AUTH_CLIENT_ID=codem-resource-server
 CODEM_AUTH_CLIENT_SECRET=<secret>
-CODEM_AUTH_SCOPES=codem:read
+CODEM_AUTH_SCOPES=codem:read codem:workspace
 ```
 
 Active tokens must contain an `aud` or `resource` claim matching the full MCP URL. CodeM bounds introspection requests using `CODEM_OUTBOUND_HTTP_TIMEOUT_MS`.
@@ -127,7 +127,7 @@ GITHUB_APP_INSTALLATION_ID=67890
 GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 ```
 
-All GitHub API requests have the same bounded outbound deadline. Installation tokens and private keys remain server-side.
+All GitHub API requests have the same bounded outbound deadline. Installation tokens and private keys remain server-side. Clone/fetch authentication uses an ephemeral askpass helper, while the persisted `origin` URL remains credential-free. Repository opens are serialized within one CodeM process; multi-replica workspace coordination is not supported.
 
 ## Remote terminal policy
 

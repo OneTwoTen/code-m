@@ -26,7 +26,8 @@ External introspection accepts only active tokens whose `aud` or `resource` matc
 
 HTTP tools require scopes:
 
-- `codem:read` for system, workspace-read, and GitHub status tools
+- `codem:read` for system information, repository discovery, workspace reads, and GitHub status
+- `codem:workspace` for persistent clone/update operations
 - `codem:execute` for terminal execution
 
 Embedded OAuth cannot grant `codem:execute` in this release.
@@ -55,7 +56,7 @@ The browser bootstrap query is sensitive because URLs may be retained by browser
 - Passwords are hashed with Argon2id.
 - Sessions, OAuth codes, access tokens, refresh tokens, setup states, and CSRF/request tokens are stored as hashes where verification does not require plaintext.
 - GitHub App configuration stored in SQLite is encrypted with `CODEM_SECRET_KEY`.
-- GitHub private keys, installation tokens, OAuth client secrets, and access tokens are never returned by MCP tools.
+- GitHub private keys, installation tokens, OAuth client secrets, and access tokens are never returned by MCP tools. Git installation tokens are passed only through an ephemeral askpass environment and are excluded from command arguments, remotes, SQLite, and safe errors.
 - The process adapter receives a small environment allowlist rather than the full server environment.
 - Safe error responses omit remote response bodies and credentials.
 
@@ -63,9 +64,9 @@ Backups are credential-bearing data. Protect the database and `CODEM_SECRET_KEY`
 
 ## Workspace boundary
 
-Workspace paths are resolved against the configured root. Existing symlinks are canonicalized before access. Attempts to traverse outside the authorized workspace are rejected.
+Local stdio paths are resolved against the configured root. In HTTP mode, clients select an opaque `workspaceId`; CodeM resolves it through an owner-scoped SQLite row and verifies the checkout remains under `CODEM_WORKSPACES_DIR`. Existing symlinks are canonicalized before access, and traversal or symlink escape is rejected.
 
-The current public read tool supports bounded UTF-8 regular files and rejects binary content.
+Repository names and refs are validated before Git runs. Opaque workspace IDs, not repository input, determine checkout paths. Dirty workspaces are never fetched, reset, cleaned, or overwritten. The public read tool supports bounded UTF-8 regular files and rejects binary content.
 
 ## Process execution
 
@@ -130,4 +131,4 @@ Treat these as prerequisites for a public, multi-tenant remote coding service.
 
 ## Security tests
 
-The repository currently covers workspace traversal, output truncation, timeout/cancellation, process escalation, stdin limits, HTTP host and OAuth redirect validation, authentication challenges, introspection audience enforcement, consent CSRF, single-use authorization codes, refresh rotation, and GitHub/OAuth timeout errors.
+The repository currently covers workspace traversal, owner isolation, persistent lifecycle transitions, dirty-workspace refusal, Git credential redaction, output truncation, timeout/cancellation, process escalation, stdin limits, HTTP host and OAuth redirect validation, authentication challenges, introspection audience enforcement, consent CSRF, single-use authorization codes, refresh rotation, and GitHub/OAuth timeout errors.

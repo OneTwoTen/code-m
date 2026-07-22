@@ -37,8 +37,9 @@ apps/mcp-server/src/
   config.ts                   validated runtime configuration
   application-metadata.ts     canonical name/version/runtime
   auth/                       embedded OAuth and introspection
-  github/                     GitHub App setup and API client
+  github/                     GitHub App setup and repository API client
   storage/                    SQLite migrations and stores
+  workspace/                  Git transport and persistent workspace lifecycle
 
 packages/core/src/
   process/                     portable process contracts
@@ -100,7 +101,7 @@ OAuth code depends on the `OAuthStore` interface for:
 - authorization-code creation and exchange
 - refresh-token rotation
 
-The interface prevents auth logic from depending on SQLite query details and is the future extension point for PostgreSQL. A PostgreSQL adapter is not included yet.
+The interfaces prevent auth and workspace lifecycle logic from depending on SQLite query details and are future extension points for PostgreSQL. `WorkspaceStore` scopes every lookup by authenticated user and persists repository/ref identity, checkout path, lifecycle status, safe error text, and open timestamps. A PostgreSQL adapter is not included yet.
 
 With SQLite, CodeM runs as one writable replica against one persistent `/data` volume.
 
@@ -114,7 +115,7 @@ With SQLite, CodeM runs as one writable replica against one persistent `/data` v
 6. A core port invokes the concrete adapter.
 7. Output is bounded and mapped to a safe MCP result.
 
-HTTP `codem:read` protects read-only tools. `codem:execute` is required for terminal execution in addition to the server policy switch.
+HTTP `codem:read` protects read-only tools, while `codem:workspace` protects persistent clone/update operations. `codem:execute` is required for terminal execution in addition to the server policy switch.
 
 ## Process execution boundary
 
@@ -132,7 +133,7 @@ These controls make local execution bounded. They do not replace a container-per
 
 ## Outbound network boundary
 
-OAuth introspection and GitHub API calls use one timed fetch helper. It composes caller cancellation with a configured timeout and maps timeout failures to safe errors that omit credentials and response bodies.
+OAuth introspection and GitHub API calls use one timed fetch helper. It composes caller cancellation with a configured timeout and maps timeout failures to safe errors that omit credentials and response bodies. Git network operations use a temporary askpass helper and credential-free HTTPS remotes. Workspace opens are serialized by user/repository/ref within one process.
 
 ## HTTP boundary
 
