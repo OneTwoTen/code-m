@@ -66,7 +66,7 @@
 **Files:**
 - Review: all branch changes.
 
-- [ ] **Step 1: Remove temporary files and stale assumptions from the branch.**
-- [ ] **Step 2: Compare the branch against `main` and review the final diff.**
-- [ ] **Step 3: Run repository checks through the configured CI workflow.**
-- [ ] **Step 4: Open a pull request that closes issue #6 and reports verification status.**
+- [x] **Step 1: Remove temporary files and stale assumptions from the branch.**
+- [x] **Step 2: Compare the branch against `main` and review the final diff.**
+- [x] **Step 3: Run repository checks through the configured CI workflow.**
+- [x] **Step 4: Open a pull request that closes issue #6 and reports verification status.**
