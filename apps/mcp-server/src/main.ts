@@ -1,4 +1,5 @@
 import { realpath } from "node:fs/promises";
+import { resolve } from "node:path";
 import { BunProcessRunner } from "@codem/adapters";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CODEM_APPLICATION } from "./application-metadata.ts";
@@ -9,11 +10,17 @@ import { GitHubConfigStore } from "./github/github-config-store.ts";
 import { DatabaseBackedGitHubProvider } from "./github/github-provider.ts";
 import { GitHubSetupController } from "./github/github-setup-controller.ts";
 import { startHttpServer } from "./http-server.ts";
+import { SQLiteWorkspaceStore } from "./storage/sqlite-workspace-store.ts";
 import { openCodeMDatabase } from "./storage/sqlite.ts";
+import { ProcessGitTransport } from "./workspace/process-git-transport.ts";
+import { RepositoryWorkspaceService } from "./workspace/repository-workspace-service.ts";
 
 async function main(): Promise<void> {
   const config = loadCodeMConfig();
-  const workspaceRoot = await realpath(config.workspaceRoot);
+  const workspaceRoot =
+    config.transport === "stdio"
+      ? await realpath(config.workspaceRoot)
+      : resolve(config.workspaceRoot);
   const processRunner = new BunProcessRunner();
 
   if (config.transport === "http") {
@@ -25,11 +32,18 @@ async function main(): Promise<void> {
       config.outboundHttpTimeoutMs,
     );
     const githubSetup = new GitHubSetupController(storage.database, config, githubStore, github);
+    const repositoryWorkspaces = new RepositoryWorkspaceService({
+      workspacesDir: config.workspacesDir,
+      store: new SQLiteWorkspaceStore(storage.database),
+      github,
+      git: new ProcessGitTransport(processRunner),
+    });
     const httpServer = startHttpServer(config, {
       workspaceRoot,
       processRunner,
       github,
       githubSetup,
+      repositoryWorkspaces,
       database: storage.database,
     });
     const close = () => {
