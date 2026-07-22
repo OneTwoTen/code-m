@@ -10,7 +10,10 @@ import {
 } from "./auth/protected-resource.ts";
 import type { CodeMHttpConfig, ExternalAuthConfig } from "./config.ts";
 import { createCodeMServer } from "./create-server.ts";
-import type { GitHubConnectionProvider } from "./create-server.ts";
+import type {
+  GitHubRepositoryProvider,
+  WorkspaceRepositoryProvider,
+} from "./create-server.ts";
 import type { GitHubSetupController } from "./github/github-setup-controller.ts";
 import { SQLiteOAuthStore } from "./storage/sqlite-oauth-store.ts";
 
@@ -18,8 +21,9 @@ export interface HttpServerDependencies {
   workspaceRoot: string;
   processRunner: ProcessRunner;
   database: Database;
-  github?: GitHubConnectionProvider;
+  github?: GitHubRepositoryProvider;
   githubSetup?: GitHubSetupController;
+  repositoryWorkspaces?: WorkspaceRepositoryProvider;
 }
 
 function json(value: unknown, status = 200, headers?: HeadersInit): Response {
@@ -203,6 +207,7 @@ export function createHttpHandler(
         remoteMode: true,
         allowRemoteTerminal: config.allowRemoteTerminal,
         github: dependencies.github,
+        repositoryWorkspaces: dependencies.repositoryWorkspaces,
       });
       const transport = new WebStandardStreamableHTTPServerTransport({
         enableJsonResponse: true,
