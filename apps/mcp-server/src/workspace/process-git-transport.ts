@@ -9,7 +9,7 @@ import type {
   GitOperation,
   GitTransport,
 } from "./git-transport.ts";
-import { GitTransportError } from "./git-transport.ts";
+import { GitRefNotFoundError, GitTransportError } from "./git-transport.ts";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const OUTPUT_LIMIT_BYTES = 64 * 1024;
@@ -195,9 +195,7 @@ export class ProcessGitTransport implements GitTransport {
         break;
       }
     }
-    if (!commit) {
-      throw new GitTransportError("checkout", operationMessage("checkout"));
-    }
+    if (!commit) throw new GitRefNotFoundError();
 
     const checkout = await this.#execute(
       "checkout",
