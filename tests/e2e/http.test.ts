@@ -159,10 +159,12 @@ async function embeddedAccessToken(
     "INSERT INTO oauth_clients (client_id, redirect_uris, client_name, created_at) VALUES (?, ?, ?, ?)",
     ["client_http_e2e", JSON.stringify(["http://127.0.0.1/callback"]), "HTTP E2E Client", now],
   );
-  database.run(
-    "INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
-    [sha256(session), "user_http_e2e", new Date(Date.now() + 60_000).toISOString(), now],
-  );
+  database.run("INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)", [
+    sha256(session),
+    "user_http_e2e",
+    new Date(Date.now() + 60_000).toISOString(),
+    now,
+  ]);
 
   const verifier = "http-e2e-verification-secret";
   const authorizationUrl = new URL("/oauth/authorize", publicUrl);
@@ -362,7 +364,11 @@ describe("HTTP production boundary", () => {
       repositoryWorkspaces,
     });
 
-    const accessToken = await embeddedAccessToken(config.publicUrl, config.mcpUrl, storage.database);
+    const accessToken = await embeddedAccessToken(
+      config.publicUrl,
+      config.mcpUrl,
+      storage.database,
+    );
     const transport = new StreamableHTTPClientTransport(config.mcpUrl, {
       requestInit: { headers: { authorization: `Bearer ${accessToken}` } },
     });
