@@ -53,7 +53,7 @@ describe("GitHubAppClient", () => {
     expect(JSON.stringify(status)).not.toContain("Bearer");
   });
 
-  test("lists installation repositories with an opaque pagination cursor", async () => {
+  test("lists installation repositories with a self-contained opaque pagination cursor", async () => {
     const requests: Array<{ url: string; authorization?: string | undefined }> = [];
     const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -111,7 +111,7 @@ describe("GitHubAppClient", () => {
     expect(JSON.stringify(first)).not.toContain("clone_url");
     expect(JSON.stringify(first)).not.toContain(".git");
 
-    const second = await client.listRepositories({ limit: 1, cursor: first.nextCursor });
+    const second = await client.listRepositories({ cursor: first.nextCursor });
     expect(second.repositories[0]?.fullName).toBe("owner/two");
     expect(second.nextCursor).toBeUndefined();
     expect(requests.some((request) => request.url.includes("per_page=1&page=2"))).toBe(true);
@@ -119,6 +119,34 @@ describe("GitHubAppClient", () => {
       requests.filter((request) => request.url.includes("/installation/repositories"))[0]
         ?.authorization,
     ).toBe("Bearer installation-secret-token");
+  });
+
+  test("rejects a limit that conflicts with the opaque repository cursor", async () => {
+    let repositoryRequests = 0;
+    const fetchFn = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/access_tokens")) return installationTokenResponse();
+      repositoryRequests += 1;
+      return Response.json({
+        total_count: 2,
+        repositories: [
+          {
+            id: repositoryRequests,
+            full_name: `owner/repository-${repositoryRequests}`,
+            private: false,
+            default_branch: "main",
+          },
+        ],
+      });
+    }) as typeof fetch;
+    const client = new GitHubAppClient(config(), fetchFn);
+
+    const first = await client.listRepositories({ limit: 1 });
+    expect(first.nextCursor).toBeString();
+    await expect(
+      client.listRepositories({ cursor: first.nextCursor, limit: 2 }),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(repositoryRequests).toBe(1);
   });
 
   test("rejects malformed repository cursors before making a repository request", async () => {
@@ -165,6 +193,19 @@ describe("GitHubAppClient", () => {
       permissions: { pull: true, push: false },
     });
     expect(JSON.stringify(repository)).not.toContain("installation-secret-token");
+  });
+
+  test("maps installation token authentication failures to a stable safe error", async () => {
+    const fetchFn = (async () => new Response("remote secret body", { status: 401 })) as typeof fetch;
+    const client = new GitHubAppClient(config(), fetchFn);
+
+    await expect(client.listRepositories()).rejects.toMatchObject({
+      code: "REPOSITORY_ACCESS_DENIED",
+      message: "The GitHub App installation could not authenticate.",
+    });
+    await client.listRepositories().catch((error: unknown) => {
+      expect(String(error)).not.toContain("remote secret body");
+    });
   });
 
   test("maps repository access denial to a stable error without response-body leakage", async () => {
