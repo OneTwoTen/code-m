@@ -77,6 +77,9 @@ export interface GitHubConnectionStatus {
     private: boolean;
     defaultBranch: string;
   }>;
+  repositoryPreviewCount?: number;
+  repositoriesTruncated?: boolean;
+  repositoryListingTool?: "repository.list";
   error?: string;
 }
 
@@ -321,6 +324,12 @@ export class GitHubAppClient {
       if (!response.ok) throw new Error(`GitHub repository request failed (${response.status}).`);
 
       const result = (await response.json()) as InstallationRepositoriesResponse;
+      const repositories = result.repositories.slice(0, 20).map((repository) => ({
+        id: repository.id,
+        fullName: repository.full_name,
+        private: repository.private,
+        defaultBranch: repository.default_branch,
+      }));
       return {
         configured: true,
         authenticated: true,
@@ -329,12 +338,10 @@ export class GitHubAppClient {
         repositorySelection: installation.repositorySelection,
         permissions: installation.permissions,
         repositoryCount: result.total_count,
-        repositories: result.repositories.slice(0, 20).map((repository) => ({
-          id: repository.id,
-          fullName: repository.full_name,
-          private: repository.private,
-          defaultBranch: repository.default_branch,
-        })),
+        repositories,
+        repositoryPreviewCount: repositories.length,
+        repositoriesTruncated: repositories.length < result.total_count,
+        repositoryListingTool: "repository.list",
       };
     } catch (error) {
       return {
