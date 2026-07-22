@@ -53,78 +53,73 @@ describe("GitHubAppClient", () => {
     expect(JSON.stringify(status)).not.toContain("Bearer");
   });
 
-  test(
-    "lists installation repositories with a self-contained opaque pagination cursor",
-    async () => {
-      const requests: Array<{ url: string; authorization?: string | undefined }> = [];
-      const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        requests.push({
-          url,
-          authorization: new Headers(init?.headers).get("authorization") ?? undefined,
+  test("lists installation repositories with a self-contained opaque pagination cursor", async () => {
+    const requests: Array<{ url: string; authorization?: string | undefined }> = [];
+    const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({
+        url,
+        authorization: new Headers(init?.headers).get("authorization") ?? undefined,
+      });
+      if (url.endsWith("/access_tokens")) return installationTokenResponse();
+      const page = new URL(url).searchParams.get("page");
+      if (page === "1") {
+        return Response.json({
+          total_count: 2,
+          repositories: [
+            {
+              id: 1,
+              full_name: "owner/one",
+              private: true,
+              default_branch: "main",
+              clone_url: "https://github.test/owner/one.git",
+              permissions: { pull: true, push: false },
+            },
+          ],
         });
-        if (url.endsWith("/access_tokens")) return installationTokenResponse();
-        const page = new URL(url).searchParams.get("page");
-        if (page === "1") {
-          return Response.json({
-            total_count: 2,
-            repositories: [
-              {
-                id: 1,
-                full_name: "owner/one",
-                private: true,
-                default_branch: "main",
-                clone_url: "https://github.test/owner/one.git",
-                permissions: { pull: true, push: false },
-              },
-            ],
-          });
-        }
-        if (page === "2") {
-          return Response.json({
-            total_count: 2,
-            repositories: [
-              {
-                id: 2,
-                full_name: "owner/two",
-                private: false,
-                default_branch: "trunk",
-                clone_url: "https://github.test/owner/two.git",
-                permissions: { pull: true, push: true },
-              },
-            ],
-          });
-        }
-        throw new Error(`unexpected request: ${url}`);
-      }) as typeof fetch;
-      const client = new GitHubAppClient(config(), fetchFn);
+      }
+      if (page === "2") {
+        return Response.json({
+          total_count: 2,
+          repositories: [
+            {
+              id: 2,
+              full_name: "owner/two",
+              private: false,
+              default_branch: "trunk",
+              clone_url: "https://github.test/owner/two.git",
+              permissions: { pull: true, push: true },
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    }) as typeof fetch;
+    const client = new GitHubAppClient(config(), fetchFn);
 
-      const first = await client.listRepositories({ limit: 1 });
-      expect(first.repositories).toEqual([
-        {
-          fullName: "owner/one",
-          private: true,
-          defaultBranch: "main",
-          permissions: { pull: true, push: false },
-        },
-      ]);
-      expect(first.nextCursor).toBeString();
-      expect(JSON.stringify(first)).not.toContain("installation-secret-token");
-      expect(JSON.stringify(first)).not.toContain("clone_url");
-      expect(JSON.stringify(first)).not.toContain(".git");
+    const first = await client.listRepositories({ limit: 1 });
+    expect(first.repositories).toEqual([
+      {
+        fullName: "owner/one",
+        private: true,
+        defaultBranch: "main",
+        permissions: { pull: true, push: false },
+      },
+    ]);
+    expect(first.nextCursor).toBeString();
+    expect(JSON.stringify(first)).not.toContain("installation-secret-token");
+    expect(JSON.stringify(first)).not.toContain("clone_url");
+    expect(JSON.stringify(first)).not.toContain(".git");
 
-      const second = await client.listRepositories({ cursor: first.nextCursor });
-      expect(second.repositories[0]?.fullName).toBe("owner/two");
-      expect(second.nextCursor).toBeUndefined();
-      expect(
-        requests.some((request) => request.url.includes("per_page=1&page=2")),
-      ).toBe(true);
-      expect(
-        requests.filter((request) => request.url.includes("/installation/repositories"))[0]
-          ?.authorization,
-      ).toBe("Bearer installation-secret-token");
-    },
-  );
+    const second = await client.listRepositories({ cursor: first.nextCursor });
+    expect(second.repositories[0]?.fullName).toBe("owner/two");
+    expect(second.nextCursor).toBeUndefined();
+    expect(requests.some((request) => request.url.includes("per_page=1&page=2"))).toBe(true);
+    expect(
+      requests.filter((request) => request.url.includes("/installation/repositories"))[0]
+        ?.authorization,
+    ).toBe("Bearer installation-secret-token");
+  });
 
   test("rejects a limit that conflicts with the opaque repository cursor", async () => {
     let repositoryRequests = 0;
@@ -164,9 +159,7 @@ describe("GitHubAppClient", () => {
     }) as typeof fetch;
     const client = new GitHubAppClient(config(), fetchFn);
 
-    await expect(
-      client.listRepositories({ cursor: "not-a-valid-cursor" }),
-    ).rejects.toMatchObject({
+    await expect(client.listRepositories({ cursor: "not-a-valid-cursor" })).rejects.toMatchObject({
       code: "INVALID_INPUT",
     });
     expect(repositoryRequests).toBe(0);
@@ -199,9 +192,7 @@ describe("GitHubAppClient", () => {
       cloneUrl: "https://github.test/owner/private.git",
       permissions: { pull: true, push: false },
     });
-    expect(JSON.stringify(repository)).not.toContain(
-      "installation-secret-token",
-    );
+    expect(JSON.stringify(repository)).not.toContain("installation-secret-token");
   });
 
   test("maps installation token authentication failures to a stable safe error", async () => {
@@ -218,24 +209,21 @@ describe("GitHubAppClient", () => {
     });
   });
 
-  test(
-    "maps repository access denial to a stable error without response-body leakage",
-    async () => {
-      const fetchFn = (async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.endsWith("/access_tokens")) return installationTokenResponse("do-not-leak");
-        return new Response("remote secret body", { status: 403 });
-      }) as typeof fetch;
-      const client = new GitHubAppClient(config(), fetchFn);
+  test("maps repository access denial to a stable error without response-body leakage", async () => {
+    const fetchFn = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/access_tokens")) return installationTokenResponse("do-not-leak");
+      return new Response("remote secret body", { status: 403 });
+    }) as typeof fetch;
+    const client = new GitHubAppClient(config(), fetchFn);
 
-      await expect(client.getRepository("owner/denied")).rejects.toMatchObject({
-        code: "REPOSITORY_ACCESS_DENIED",
-        message: "The GitHub App installation cannot access the requested repository.",
-      });
-      await client.getRepository("owner/denied").catch((error: unknown) => {
-        expect(String(error)).not.toContain("do-not-leak");
-        expect(String(error)).not.toContain("remote secret body");
-      });
-    },
-  );
+    await expect(client.getRepository("owner/denied")).rejects.toMatchObject({
+      code: "REPOSITORY_ACCESS_DENIED",
+      message: "The GitHub App installation cannot access the requested repository.",
+    });
+    await client.getRepository("owner/denied").catch((error: unknown) => {
+      expect(String(error)).not.toContain("do-not-leak");
+      expect(String(error)).not.toContain("remote secret body");
+    });
+  });
 });
