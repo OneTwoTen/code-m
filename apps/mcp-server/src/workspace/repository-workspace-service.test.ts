@@ -169,7 +169,7 @@ describe("RepositoryWorkspaceService", () => {
     expect(JSON.stringify(opened)).not.toContain(github.token);
     expect(git.cloneCalls).toBe(1);
     expect(git.checkoutCalls).toBe(1);
-    await expect(access(join(row?.checkoutPath ?? "", "README.md"))).resolves.toBeUndefined();
+    await expect(access(join(row?.checkoutPath ?? "", "README.md"))).resolves.toBeNull();
   });
 
   test("reuses and updates a clean workspace for the same repository and ref", async () => {
