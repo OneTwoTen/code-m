@@ -197,7 +197,7 @@ describe("GitHubAppClient", () => {
 
   test("maps installation token authentication failures to a stable safe error", async () => {
     const fetchFn = (async () =>
-      new Response("remote secret body", { status: 401 })) as typeof fetch;
+      new Response("remote secret body", { status: 401 })) as unknown as typeof fetch;
     const client = new GitHubAppClient(config(), fetchFn);
 
     await expect(client.listRepositories()).rejects.toMatchObject({
