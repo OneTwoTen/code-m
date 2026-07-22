@@ -50,9 +50,9 @@ describe("SQLiteWorkspaceStore", () => {
       id: "ws_persisted",
       repositoryFullName: "OneTwoTen/code-m",
       status: "creating",
-      lastError: undefined,
       lastOpenedAt: "2026-07-22T03:00:00.000Z",
     });
+    expect(created.lastError).toBeUndefined();
 
     fixture.storage.close();
     closeDatabase.pop();
