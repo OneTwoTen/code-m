@@ -50,9 +50,13 @@ function hiddenInput(body: string, name: string): string {
   return match[1];
 }
 
-function textContent(result: Awaited<ReturnType<Client["callTool"]>>): string {
-  const content = result.content[0];
-  if (!content || content.type !== "text") throw new Error("expected MCP text content");
+function textContent(result: unknown): string {
+  const contents = (result as { content?: unknown }).content;
+  if (!Array.isArray(contents)) throw new Error("expected MCP content array");
+  const content = contents[0] as { type?: unknown; text?: unknown } | undefined;
+  if (content?.type !== "text" || typeof content.text !== "string") {
+    throw new Error("expected MCP text content");
+  }
   return content.text;
 }
 
@@ -102,7 +106,7 @@ class FakeGitHubProvider {
           fullName: this.repository.fullName,
           defaultBranch: this.repository.defaultBranch,
           private: this.repository.private,
-          permissions: this.repository.permissions,
+          ...(this.repository.permissions ? { permissions: this.repository.permissions } : {}),
         },
       ],
     };
@@ -374,7 +378,7 @@ describe("HTTP production boundary", () => {
     });
     const client = new Client({ name: "codem-http-e2e", version: "1.0.0" });
     clients.push(client);
-    await client.connect(transport);
+    await client.connect(transport as Parameters<Client["connect"]>[0]);
 
     const listed = await client.callTool({
       name: "repository.list",
