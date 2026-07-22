@@ -110,7 +110,7 @@ class FakeGitTransport implements GitTransport {
   async clone(input: GitCloneInput): Promise<void> {
     this.cloneCalls += 1;
     if (this.cloneError) throw this.cloneError;
-    await mkdir(input.checkoutPath, { recursive: true });
+    await mkdir(join(input.checkoutPath, ".git"), { recursive: true });
     await writeFile(join(input.checkoutPath, "README.md"), "repository readme\n");
   }
 
