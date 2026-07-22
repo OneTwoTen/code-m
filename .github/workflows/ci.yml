@@ -23,6 +23,20 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Apply formatter for implementation diagnostics
+        run: bun run format
+
+      - name: Upload formatted implementation files
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-4-formatted
+          path: |
+            apps/mcp-server/src
+            tests/e2e
+            .env.example
+            README.md
+            docs
+
       - name: Check formatting
         run: bun run format:check
 
