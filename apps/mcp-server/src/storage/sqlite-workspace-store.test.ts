@@ -19,6 +19,17 @@ async function openFixture() {
   const databaseUrl = `file:${join(dataDir, "codem.sqlite")}`;
   const storage = await openCodeMDatabase(databaseUrl, dataDir);
   closeDatabase.push(storage.close);
+  for (const [id, username] of [
+    ["usr_one", "one"],
+    ["usr_owner", "owner"],
+    ["usr_other", "other"],
+  ] as const) {
+    storage.database.run(
+      `INSERT INTO users (id, username, password_hash, role, created_at)
+       VALUES (?, ?, ?, 'user', ?)`,
+      [id, username, "test-password-hash", "2026-07-22T03:00:00.000Z"],
+    );
+  }
   return { dataDir, databaseUrl, storage, store: new SQLiteWorkspaceStore(storage.database) };
 }
 
