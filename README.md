@@ -136,7 +136,7 @@ GITHUB_APP_INSTALLATION_ID=67890
 GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 ```
 
-GitHub installation tokens and private keys stay server-side and are never returned through MCP. Use `repository.list`, then `workspace.open_repository`, and pass the returned `workspaceId` to workspace tools. Clean workspaces are updated on reopen; dirty workspaces are preserved and rejected with `WORKSPACE_DIRTY`.
+GitHub installation tokens and private keys stay server-side and are never returned through MCP. Use `repository.list`, then `workspace.open_repository`, and pass the returned `workspaceId` to workspace tools. Clean workspaces are updated on reopen; dirty workspaces are preserved and rejected with `WORKSPACE_DIRTY`. See [GitHub repository discovery](docs/github-repository-discovery.md) for status-preview metadata and complete cursor pagination.
 
 ## Important environment variables
 
@@ -178,6 +178,7 @@ docs/                  architecture, deployment, security, operations
 - [Backup and restore](docs/backup-and-restore.md)
 - [Security model](docs/security-model.md)
 - [Tool catalog](docs/tool-catalog.md)
+- [GitHub repository discovery](docs/github-repository-discovery.md)
 - [Terminal executor](docs/terminal-executor.md)
 - [Roadmap](docs/roadmap.md)
 
