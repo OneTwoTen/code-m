@@ -1,4 +1,4 @@
-import { mkdir, realpath, rm } from "node:fs/promises";
+import { access, mkdir, realpath, rm } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { CodeMError } from "@codem/core";
 import type { GitHubRepository } from "../github/github-app.ts";
@@ -90,6 +90,16 @@ function assertContained(root: string, candidate: string): void {
   const relativePath = relative(root, candidate);
   if (relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
     throw new CodeMError("WORKSPACE_NOT_FOUND", "The requested workspace does not exist.");
+  }
+}
+
+async function repositoryMetadataExists(checkoutPath: string): Promise<boolean> {
+  try {
+    await access(join(checkoutPath, ".git"));
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw new CodeMError("WORKSPACE_UPDATE_FAILED", "Repository workspace could not be updated.");
   }
 }
 
@@ -212,6 +222,7 @@ export class RepositoryWorkspaceService {
 
   async #updateWorkspace(
     workspace: WorkspaceRecord,
+    repository: GitHubRepository,
     signal: AbortSignal,
   ): Promise<OpenRepositoryResult> {
     try {
@@ -228,6 +239,7 @@ export class RepositoryWorkspaceService {
       });
       await this.#github.withInstallationToken((token) =>
         this.#git.fetch({
+          cloneUrl: repository.cloneUrl,
           checkoutPath: workspace.checkoutPath,
           credential: { username: "x-access-token", password: token },
           signal,
@@ -271,8 +283,13 @@ export class RepositoryWorkspaceService {
     return this.#withLock(lockKey, async () => {
       const found = await this.#store.findByRepository(input.userId, repository.fullName, ref);
       const existing = found ? this.#validatedWorkspace(found) : undefined;
-      if (existing?.status === "ready" || existing?.status === "updating") {
-        return this.#updateWorkspace(existing, signal);
+      if (
+        existing &&
+        (existing.status === "ready" ||
+          existing.status === "updating" ||
+          (await repositoryMetadataExists(existing.checkoutPath)))
+      ) {
+        return this.#updateWorkspace(existing, repository, signal);
       }
 
       let workspace = existing;
