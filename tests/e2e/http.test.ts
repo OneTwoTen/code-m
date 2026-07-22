@@ -59,7 +59,7 @@ describe("HTTP production boundary", () => {
     expect(await resourceMetadata.json()).toMatchObject({
       resource: config.mcpUrl.href,
       authorization_servers: [config.publicUrl.href.replace(/\/$/, "")],
-      scopes_supported: ["codem:read"],
+      scopes_supported: ["codem:read", "codem:workspace"],
       bearer_methods_supported: ["header"],
     });
 
@@ -67,7 +67,7 @@ describe("HTTP production boundary", () => {
     expect(authorizationMetadata.status).toBe(200);
     expect(await authorizationMetadata.json()).toMatchObject({
       issuer: config.publicUrl.href.replace(/\/$/, ""),
-      scopes_supported: ["codem:read"],
+      scopes_supported: ["codem:read", "codem:workspace"],
     });
   });
 
