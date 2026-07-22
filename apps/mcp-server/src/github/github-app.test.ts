@@ -62,7 +62,8 @@ describe("GitHubAppClient", () => {
         authorization: new Headers(init?.headers).get("authorization") ?? undefined,
       });
       if (url.endsWith("/access_tokens")) return installationTokenResponse();
-      if (url.includes("page=1")) {
+      const page = new URL(url).searchParams.get("page");
+      if (page === "1") {
         return Response.json({
           total_count: 2,
           repositories: [
@@ -77,7 +78,7 @@ describe("GitHubAppClient", () => {
           ],
         });
       }
-      if (url.includes("page=2")) {
+      if (page === "2") {
         return Response.json({
           total_count: 2,
           repositories: [
