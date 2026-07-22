@@ -37,6 +37,7 @@ export interface RepositoryWorkspaceServiceDependencies {
 const REPOSITORY_PATTERN =
   /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 const WORKSPACE_ID_PATTERN = /^ws_[A-Za-z0-9_-]{1,120}$/;
+const FORBIDDEN_REF_CHARACTERS = ["~", "^", ":", "?", "*", "[", "\\"] as const;
 
 function validateRepository(value: string): string {
   if (
@@ -51,6 +52,9 @@ function validateRepository(value: string): string {
 }
 
 function validateRef(value: string): string {
+  const hasForbiddenCharacter = FORBIDDEN_REF_CHARACTERS.some((character) =>
+    value.includes(character),
+  );
   if (
     value.trim() !== value ||
     value.length < 1 ||
@@ -63,7 +67,8 @@ function validateRef(value: string): string {
     value.endsWith(".lock") ||
     value.includes("..") ||
     value.includes("@{") ||
-    /[\u0000-\u0020\u007f~^:?*[\\]/.test(value) ||
+    /[\u0000-\u0020\u007f]/.test(value) ||
+    hasForbiddenCharacter ||
     value.includes("//")
   ) {
     throw new CodeMError("INVALID_REF", "Repository ref is invalid.");
@@ -129,6 +134,14 @@ export class RepositoryWorkspaceService {
     return checkoutPath;
   }
 
+  #validatedWorkspace(workspace: WorkspaceRecord): WorkspaceRecord {
+    const expectedPath = this.#checkoutPath(workspace.id);
+    if (resolve(workspace.checkoutPath) !== expectedPath) {
+      throw new CodeMError("WORKSPACE_NOT_FOUND", "The requested workspace does not exist.");
+    }
+    return { ...workspace, checkoutPath: expectedPath };
+  }
+
   async #markFailed(
     workspace: WorkspaceRecord,
     message: string,
@@ -163,11 +176,12 @@ export class RepositoryWorkspaceService {
         }),
       );
       await this.#git.checkoutRef(workspace.checkoutPath, workspace.ref, signal);
+      const now = this.#now();
       await this.#store.updateLifecycle(workspace.userId, workspace.id, {
         status: "ready",
         lastError: undefined,
-        now: this.#now(),
-        openedAt: this.#now(),
+        now,
+        openedAt: now,
       });
       return {
         workspaceId: workspace.id,
@@ -213,11 +227,12 @@ export class RepositoryWorkspaceService {
         }),
       );
       await this.#git.checkoutRef(workspace.checkoutPath, workspace.ref, signal);
+      const now = this.#now();
       await this.#store.updateLifecycle(workspace.userId, workspace.id, {
         status: "ready",
         lastError: undefined,
-        now: this.#now(),
-        openedAt: this.#now(),
+        now,
+        openedAt: now,
       });
       return {
         workspaceId: workspace.id,
@@ -250,31 +265,37 @@ export class RepositoryWorkspaceService {
     const lockKey = `${input.userId}\u0000${repository.fullName}\u0000${ref}`;
 
     return this.#withLock(lockKey, async () => {
-      const existing = await this.#store.findByRepository(input.userId, repository.fullName, ref);
+      const found = await this.#store.findByRepository(input.userId, repository.fullName, ref);
+      const existing = found ? this.#validatedWorkspace(found) : undefined;
       if (existing?.status === "ready" || existing?.status === "updating") {
         return this.#updateWorkspace(existing, signal);
       }
 
       let workspace = existing;
       if (workspace) {
-        workspace = await this.#store.updateLifecycle(input.userId, workspace.id, {
-          status: "creating",
-          lastError: undefined,
-          now: this.#now(),
-          openedAt: this.#now(),
-        });
+        const now = this.#now();
+        workspace = this.#validatedWorkspace(
+          await this.#store.updateLifecycle(input.userId, workspace.id, {
+            status: "creating",
+            lastError: undefined,
+            now,
+            openedAt: now,
+          }),
+        );
       } else {
         const workspaceId = this.#createId();
         const checkoutPath = this.#checkoutPath(workspaceId);
-        workspace = await this.#store.create({
-          id: workspaceId,
-          userId: input.userId,
-          repositoryFullName: repository.fullName,
-          ref,
-          checkoutPath,
-          status: "creating",
-          now: this.#now(),
-        });
+        workspace = this.#validatedWorkspace(
+          await this.#store.create({
+            id: workspaceId,
+            userId: input.userId,
+            repositoryFullName: repository.fullName,
+            ref,
+            checkoutPath,
+            status: "creating",
+            now: this.#now(),
+          }),
+        );
       }
       return this.#createWorkspace(workspace, repository, signal);
     });
@@ -284,16 +305,15 @@ export class RepositoryWorkspaceService {
     if (!WORKSPACE_ID_PATTERN.test(workspaceId)) {
       throw new CodeMError("WORKSPACE_NOT_FOUND", "The requested workspace does not exist.");
     }
-    const workspace = await this.#store.getById(userId, workspaceId);
-    if (!workspace || workspace.status !== "ready") {
+    const found = await this.#store.getById(userId, workspaceId);
+    if (!found || found.status !== "ready") {
       throw new CodeMError("WORKSPACE_NOT_FOUND", "The requested workspace does not exist.");
     }
+    const workspace = this.#validatedWorkspace(found);
 
-    const configuredPath = resolve(workspace.checkoutPath);
-    assertContained(this.#workspacesDir, configuredPath);
     try {
       const canonicalRoot = await realpath(this.#workspacesDir);
-      const canonicalCheckout = await realpath(configuredPath);
+      const canonicalCheckout = await realpath(workspace.checkoutPath);
       assertContained(canonicalRoot, canonicalCheckout);
       return canonicalCheckout;
     } catch (error) {
