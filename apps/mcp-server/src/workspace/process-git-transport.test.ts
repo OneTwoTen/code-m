@@ -87,12 +87,11 @@ describe("ProcessGitTransport", () => {
 
   test("redacts credentials and remote stderr from fetch failures", async () => {
     const token = "do-not-leak-token";
-    const runner = new RecordingRunner([
-      result({
-        exitCode: 128,
-        stderr: `fatal: https://x-access-token:${token}@github.example/owner/private.git denied`,
-      }),
-    ]);
+    const failure = result({
+      exitCode: 128,
+      stderr: `fatal: https://x-access-token:${token}@github.example/owner/private.git denied`,
+    });
+    const runner = new RecordingRunner([failure, failure]);
     const transport = new ProcessGitTransport(runner);
 
     await expect(
