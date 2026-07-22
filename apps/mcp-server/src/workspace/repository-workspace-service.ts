@@ -34,10 +34,17 @@ export interface RepositoryWorkspaceServiceDependencies {
   now?: (() => string) | undefined;
 }
 
-const REPOSITORY_PATTERN =
-  /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
+const REPOSITORY_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 const WORKSPACE_ID_PATTERN = /^ws_[A-Za-z0-9_-]{1,120}$/;
 const FORBIDDEN_REF_CHARACTERS = ["~", "^", ":", "?", "*", "[", "\\"] as const;
+
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
 
 function validateRepository(value: string): string {
   if (
@@ -46,7 +53,10 @@ function validateRepository(value: string): string {
     value.includes("..") ||
     value.endsWith(".git")
   ) {
-    throw new CodeMError("INVALID_REPOSITORY", "Repository must use the canonical owner/name form.");
+    throw new CodeMError(
+      "INVALID_REPOSITORY",
+      "Repository must use the canonical owner/name form.",
+    );
   }
   return value;
 }
@@ -67,7 +77,7 @@ function validateRef(value: string): string {
     value.endsWith(".lock") ||
     value.includes("..") ||
     value.includes("@{") ||
-    /[\u0000-\u0020\u007f]/.test(value) ||
+    hasControlCharacter(value) ||
     hasForbiddenCharacter ||
     value.includes("//")
   ) {
@@ -196,10 +206,7 @@ export class RepositoryWorkspaceService {
         throw new CodeMError("INVALID_REF", "The requested branch, tag, or commit was not found.");
       }
       await this.#markFailed(workspace, "Repository workspace could not be created.", true);
-      throw new CodeMError(
-        "WORKSPACE_CREATE_FAILED",
-        "Repository workspace could not be created.",
-      );
+      throw new CodeMError("WORKSPACE_CREATE_FAILED", "Repository workspace could not be created.");
     }
   }
 
@@ -248,10 +255,7 @@ export class RepositoryWorkspaceService {
         throw new CodeMError("INVALID_REF", "The requested branch, tag, or commit was not found.");
       }
       await this.#markFailed(workspace, "Repository workspace could not be updated.", false);
-      throw new CodeMError(
-        "WORKSPACE_UPDATE_FAILED",
-        "Repository workspace could not be updated.",
-      );
+      throw new CodeMError("WORKSPACE_UPDATE_FAILED", "Repository workspace could not be updated.");
     }
   }
 
@@ -306,7 +310,7 @@ export class RepositoryWorkspaceService {
       throw new CodeMError("WORKSPACE_NOT_FOUND", "The requested workspace does not exist.");
     }
     const found = await this.#store.getById(userId, workspaceId);
-    if (!found || found.status !== "ready") {
+    if (found?.status !== "ready") {
       throw new CodeMError("WORKSPACE_NOT_FOUND", "The requested workspace does not exist.");
     }
     const workspace = this.#validatedWorkspace(found);
