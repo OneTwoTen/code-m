@@ -11,6 +11,7 @@ export interface GitCloneInput {
 }
 
 export interface GitFetchInput {
+  cloneUrl: string;
   checkoutPath: string;
   credential: GitCredential;
   signal: AbortSignal;
