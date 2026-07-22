@@ -28,6 +28,15 @@ jobs:
           bunx biome format --write .
           git diff --binary > format.patch
 
+      - name: Upload formatted tests
+        uses: actions/upload-artifact@v4
+        with:
+          name: formatted-tests
+          path: |
+            apps/mcp-server/src/github/github-app.test.ts
+            apps/mcp-server/src/workspace/process-git-transport.test.ts
+            apps/mcp-server/src/workspace/repository-workspace-service.test.ts
+
       - name: Upload format patch
         uses: actions/upload-artifact@v4
         with:
