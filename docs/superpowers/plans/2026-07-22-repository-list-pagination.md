@@ -75,6 +75,6 @@
 
 - [x] **Step 1: Confirm the regression test fails before the canonical client fix.**
 - [x] **Step 2: Remove provider-local metadata code and tests.**
-- [ ] **Step 3: Run formatting, lint, typecheck, tests, and Docker build through CI.**
-- [ ] **Step 4: Compare the final branch against `main` and review for scope creep.**
-- [ ] **Step 5: Update pull request #7 with final verification evidence.**
+- [x] **Step 3: Run formatting, lint, typecheck, tests, and Docker build through CI.**
+- [x] **Step 4: Compare the final branch against `main` and review for scope creep.**
+- [x] **Step 5: Update pull request #7 with final verification evidence.**
