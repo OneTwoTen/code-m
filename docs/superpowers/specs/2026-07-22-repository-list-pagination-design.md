@@ -22,11 +22,13 @@ Complete discovery continues to use the existing `repository.list` cursor contra
 
 ## Design
 
-- Annotate successful status responses when `repositoryCount` is available.
-- Derive `repositoryPreviewCount` from the returned preview array.
+- Add the metadata fields to the canonical `GitHubConnectionStatus` contract.
+- Produce repository preview metadata in `GitHubAppClient.getConnectionStatus()` so both stdio and HTTP transports receive identical responses.
+- Derive `repositoryPreviewCount` from the bounded repository array.
 - Set `repositoriesTruncated` when the preview count is smaller than the total count.
 - Return `repositoryListingTool: "repository.list"` so agents have a structured next action.
 - Leave unconfigured and failed status responses unchanged when repository count data is unavailable.
+- Keep `DatabaseBackedGitHubProvider` as a pass-through to the canonical client contract.
 - Do not add another GitHub API request to a connection-status check.
 - Preserve all existing status fields and the existing bounded preview.
 - Keep installation tokens, clone credentials, and raw upstream error bodies server-side.
@@ -35,9 +37,10 @@ Complete discovery continues to use the existing `repository.list` cursor contra
 
 Add focused tests for:
 
-- 45 total repositories with a 20-item preview
+- the canonical GitHub client with 45 total repositories and a 20-item preview
 - a complete preview that is not truncated
 - an unreachable status without invented repository metadata
+- the final `github.connection_status` MCP response using an in-memory client/server transport
 
 Document the 20 + 20 + 5 `repository.list` flow and state explicitly that repository discovery does not require `codem:execute`.
 
