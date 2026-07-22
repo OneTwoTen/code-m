@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { access, rm } from "node:fs/promises";
+import { devNull } from "node:os";
 import type {
   ExecutionContext,
   ProcessExecutionRequest,
@@ -9,6 +10,29 @@ import type {
 import { ProcessGitTransport } from "./process-git-transport.ts";
 
 const temporaryDirectories: string[] = [];
+
+const cloneUrl = "https://github.example/owner/private.git";
+const checkoutPath = "/data/workspaces/ws_safe/repository";
+
+function hardenedArgs(args: string[]): string[] {
+  return [
+    "-c",
+    "credential.helper=",
+    "-c",
+    `core.hooksPath=${devNull}`,
+    "-c",
+    "protocol.allow=never",
+    "-c",
+    "protocol.https.allow=always",
+    "-c",
+    "http.followRedirects=initial",
+    ...args,
+  ];
+}
+
+function hookSafeArgs(args: string[]): string[] {
+  return ["-c", `core.hooksPath=${devNull}`, ...args];
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -51,14 +75,13 @@ class RecordingRunner implements ProcessRunner {
 }
 
 describe("ProcessGitTransport", () => {
-  test("passes installation credentials only through an ephemeral askpass environment", async () => {
+  test("passes installation credentials only through an isolated ephemeral askpass environment", async () => {
     const runner = new RecordingRunner([result()]);
     const transport = new ProcessGitTransport(runner);
-    const checkoutPath = "/data/workspaces/ws_safe/repository";
     const token = "installation-secret-token";
 
     await transport.clone({
-      cloneUrl: "https://github.example/owner/private.git",
+      cloneUrl,
       checkoutPath,
       credential: { username: "x-access-token", password: token },
       signal: new AbortController().signal,
@@ -66,17 +89,21 @@ describe("ProcessGitTransport", () => {
 
     const request = runner.requests[0];
     expect(request?.command).toBe("git");
-    expect(request?.args).toEqual([
-      "clone",
-      "--no-checkout",
-      "--origin",
-      "origin",
-      "https://github.example/owner/private.git",
-      checkoutPath,
-    ]);
+    expect(request?.args).toEqual(
+      hardenedArgs([
+        "clone",
+        "--no-checkout",
+        "--origin",
+        "origin",
+        cloneUrl,
+        checkoutPath,
+      ]),
+    );
     expect(JSON.stringify(request?.args)).not.toContain(token);
     expect(request?.env.CODEM_GIT_PASSWORD).toBe(token);
     expect(request?.env.GIT_TERMINAL_PROMPT).toBe("0");
+    expect(request?.env.GIT_CONFIG_NOSYSTEM).toBe("1");
+    expect(request?.env.GIT_CONFIG_GLOBAL).toBe(devNull);
     expect(request?.env.GIT_ASKPASS).toBeString();
     expect(runner.contexts[0]?.signal.aborted).toBe(false);
 
@@ -91,12 +118,21 @@ describe("ProcessGitTransport", () => {
       exitCode: 128,
       stderr: `fatal: https://x-access-token:${token}@github.example/owner/private.git denied`,
     });
-    const runner = new RecordingRunner([failure, failure]);
+    const noRewrite = result({ exitCode: 1 });
+    const runner = new RecordingRunner([
+      noRewrite,
+      result(),
+      failure,
+      noRewrite,
+      result(),
+      failure,
+    ]);
     const transport = new ProcessGitTransport(runner);
 
     await expect(
       transport.fetch({
-        checkoutPath: "/data/workspaces/ws_safe/repository",
+        cloneUrl,
+        checkoutPath,
         credential: { username: "x-access-token", password: token },
         signal: new AbortController().signal,
       }),
@@ -107,7 +143,8 @@ describe("ProcessGitTransport", () => {
 
     await transport
       .fetch({
-        checkoutPath: "/data/workspaces/ws_safe/repository",
+        cloneUrl,
+        checkoutPath,
         credential: { username: "x-access-token", password: token },
         signal: new AbortController().signal,
       })
@@ -122,13 +159,78 @@ describe("ProcessGitTransport", () => {
     const runner = new RecordingRunner([result({ stdout: " M README.md\n?? notes.txt\n" })]);
     const transport = new ProcessGitTransport(runner);
 
-    expect(
-      await transport.isDirty("/data/workspaces/ws_dirty/repository", new AbortController().signal),
-    ).toBe(true);
+    expect(await transport.isDirty(checkoutPath, new AbortController().signal)).toBe(true);
+    expect(runner.requests[0]?.args).toEqual(
+      hookSafeArgs(["-C", checkoutPath, "status", "--porcelain=v1", "--untracked-files=normal"]),
+    );
+    expect(runner.requests[0]?.env.CODEM_GIT_PASSWORD).toBeUndefined();
+    expect(runner.requests[0]?.env.GIT_CONFIG_NOSYSTEM).toBe("1");
+    expect(runner.requests[0]?.env.GIT_CONFIG_GLOBAL).toBe(devNull);
+  });
+
+  test("fetches from freshly verified metadata instead of a mutable persisted origin", async () => {
+    const runner = new RecordingRunner([result({ exitCode: 1 }), result(), result()]);
+    const transport = new ProcessGitTransport(runner);
+
+    await transport.fetch({
+      cloneUrl,
+      checkoutPath,
+      credential: { username: "x-access-token", password: "installation-secret" },
+      signal: new AbortController().signal,
+    });
+
+    expect(runner.requests.map((request) => request.args)).toEqual([
+      hookSafeArgs([
+        "-C",
+        checkoutPath,
+        "config",
+        "--local",
+        "--includes",
+        "--get-regexp",
+        "^url\\..*\\.insteadof$",
+      ]),
+      hookSafeArgs([
+        "-C",
+        checkoutPath,
+        "config",
+        "--local",
+        "--replace-all",
+        "remote.origin.url",
+        cloneUrl,
+      ]),
+      hardenedArgs([
+        "-C",
+        checkoutPath,
+        "fetch",
+        "--prune",
+        "--tags",
+        cloneUrl,
+        "+refs/heads/*:refs/remotes/origin/*",
+      ]),
+    ]);
+    expect(runner.requests[2]?.args).not.toContain("origin");
+    expect(runner.requests[2]?.env.CODEM_GIT_PASSWORD).toBe("installation-secret");
+  });
+
+  test("rejects repository-local URL rewrites before exposing credentials to Git", async () => {
+    const runner = new RecordingRunner([
+      result({ stdout: "url.https://attacker.example/.insteadof https://github.example/\n" }),
+    ]);
+    const transport = new ProcessGitTransport(runner);
+
+    await expect(
+      transport.fetch({
+        cloneUrl,
+        checkoutPath,
+        credential: { username: "x-access-token", password: "installation-secret" },
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toMatchObject({ operation: "fetch", message: "Git fetch failed." });
+    expect(runner.requests).toHaveLength(1);
     expect(runner.requests[0]?.env.CODEM_GIT_PASSWORD).toBeUndefined();
   });
 
-  test("resolves a remote branch to a commit before detached checkout", async () => {
+  test("resolves a remote branch to a commit before a hook-safe detached checkout", async () => {
     const runner = new RecordingRunner([
       result({ exitCode: 1 }),
       result({ stdout: "abc123def456\n" }),
@@ -137,28 +239,28 @@ describe("ProcessGitTransport", () => {
     const transport = new ProcessGitTransport(runner);
 
     const commit = await transport.checkoutRef(
-      "/data/workspaces/ws_ref/repository",
+      checkoutPath,
       "release/v1",
       new AbortController().signal,
     );
 
     expect(commit).toBe("abc123def456");
     expect(runner.requests.map((request) => request.args)).toEqual([
-      [
+      hookSafeArgs([
         "-C",
-        "/data/workspaces/ws_ref/repository",
+        checkoutPath,
         "rev-parse",
         "--verify",
         "refs/remotes/origin/release/v1^{commit}",
-      ],
-      [
+      ]),
+      hookSafeArgs([
         "-C",
-        "/data/workspaces/ws_ref/repository",
+        checkoutPath,
         "rev-parse",
         "--verify",
         "refs/tags/release/v1^{commit}",
-      ],
-      ["-C", "/data/workspaces/ws_ref/repository", "checkout", "--detach", "abc123def456"],
+      ]),
+      hookSafeArgs(["-C", checkoutPath, "checkout", "--detach", "abc123def456"]),
     ]);
   });
 });
