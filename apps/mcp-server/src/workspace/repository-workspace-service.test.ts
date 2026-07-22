@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GitHubRepository } from "../github/github-app.ts";
@@ -9,7 +16,11 @@ import type {
   WorkspaceRecord,
   WorkspaceStore,
 } from "./workspace-store.ts";
-import type { GitCloneInput, GitFetchInput, GitTransport } from "./git-transport.ts";
+import type {
+  GitCloneInput,
+  GitFetchInput,
+  GitTransport,
+} from "./git-transport.ts";
 import { GitRefNotFoundError, GitTransportError } from "./git-transport.ts";
 import { RepositoryWorkspaceService } from "./repository-workspace-service.ts";
 
@@ -51,7 +62,10 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     );
   }
 
-  async getById(userId: string, workspaceId: string): Promise<WorkspaceRecord | undefined> {
+  async getById(
+    userId: string,
+    workspaceId: string,
+  ): Promise<WorkspaceRecord | undefined> {
     const row = this.rows.get(workspaceId);
     return row?.userId === userId ? row : undefined;
   }
@@ -133,7 +147,9 @@ class FakeGitTransport implements GitTransport {
 }
 
 async function fixture() {
-  const workspacesDir = await mkdtemp(join(tmpdir(), "codem-repository-workspaces-"));
+  const workspacesDir = await mkdtemp(
+    join(tmpdir(), "codem-repository-workspaces-"),
+  );
   temporaryDirectories.push(workspacesDir);
   const store = new MemoryWorkspaceStore();
   const github = new FakeGitHubProvider();
@@ -198,42 +214,57 @@ describe("RepositoryWorkspaceService", () => {
   test("does not fetch or overwrite a dirty workspace", async () => {
     const { git, service } = await fixture();
     const signal = new AbortController().signal;
-    await service.openRepository({ userId: "usr_one", repository: "owner/repository" }, signal);
+    await service.openRepository(
+      { userId: "usr_one", repository: "owner/repository" },
+      signal,
+    );
     git.dirty = true;
 
     await expect(
-      service.openRepository({ userId: "usr_one", repository: "owner/repository" }, signal),
+      service.openRepository(
+        { userId: "usr_one", repository: "owner/repository" },
+        signal,
+      ),
     ).rejects.toMatchObject({ code: "WORKSPACE_DIRTY" });
     expect(git.fetchCalls).toBe(0);
   });
 
-  test("preserves local changes when retrying after a failed workspace update", async () => {
-    const { store, git, service } = await fixture();
-    const signal = new AbortController().signal;
-    const opened = await service.openRepository(
-      { userId: "usr_one", repository: "owner/repository" },
-      signal,
-    );
-    const row = store.rows.get(opened.workspaceId);
-    if (!row) throw new Error("expected workspace row");
+  test(
+    "preserves local changes when retrying after a failed workspace update",
+    async () => {
+      const { store, git, service } = await fixture();
+      const signal = new AbortController().signal;
+      const opened = await service.openRepository(
+        { userId: "usr_one", repository: "owner/repository" },
+        signal,
+      );
+      const row = store.rows.get(opened.workspaceId);
+      if (!row) throw new Error("expected workspace row");
 
-    git.fetchError = new GitTransportError("fetch", "Git fetch failed.");
-    await expect(
-      service.openRepository({ userId: "usr_one", repository: "owner/repository" }, signal),
-    ).rejects.toMatchObject({ code: "WORKSPACE_UPDATE_FAILED" });
-    expect(store.rows.get(opened.workspaceId)?.status).toBe("failed");
+      git.fetchError = new GitTransportError("fetch", "Git fetch failed.");
+      await expect(
+        service.openRepository(
+          { userId: "usr_one", repository: "owner/repository" },
+          signal,
+        ),
+      ).rejects.toMatchObject({ code: "WORKSPACE_UPDATE_FAILED" });
+      expect(store.rows.get(opened.workspaceId)?.status).toBe("failed");
 
-    const localFile = join(row.checkoutPath, "local-change.txt");
-    await writeFile(localFile, "keep this change\n");
-    git.fetchError = undefined;
-    git.dirty = true;
+      const localFile = join(row.checkoutPath, "local-change.txt");
+      await writeFile(localFile, "keep this change\n");
+      git.fetchError = undefined;
+      git.dirty = true;
 
-    await expect(
-      service.openRepository({ userId: "usr_one", repository: "owner/repository" }, signal),
-    ).rejects.toMatchObject({ code: "WORKSPACE_DIRTY" });
-    expect(await readFile(localFile, "utf8")).toBe("keep this change\n");
-    expect(git.cloneCalls).toBe(1);
-  });
+      await expect(
+        service.openRepository(
+          { userId: "usr_one", repository: "owner/repository" },
+          signal,
+        ),
+      ).rejects.toMatchObject({ code: "WORKSPACE_DIRTY" });
+      expect(await readFile(localFile, "utf8")).toBe("keep this change\n");
+      expect(git.cloneCalls).toBe(1);
+    },
+  );
 
   test("marks failed partial clones recoverably and removes the partial checkout", async () => {
     const { store, git, service } = await fixture();
@@ -270,7 +301,10 @@ describe("RepositoryWorkspaceService", () => {
   test("serializes concurrent updates for one user, repository, and ref", async () => {
     const { git, service } = await fixture();
     const signal = new AbortController().signal;
-    await service.openRepository({ userId: "usr_one", repository: "owner/repository" }, signal);
+    await service.openRepository(
+      { userId: "usr_one", repository: "owner/repository" },
+      signal,
+    );
 
     let releaseFetch: (() => void) | undefined;
     git.fetchGate = new Promise<void>((resolve) => {
@@ -318,7 +352,11 @@ describe("RepositoryWorkspaceService", () => {
     ).rejects.toMatchObject({ code: "INVALID_REPOSITORY" });
     await expect(
       service.openRepository(
-        { userId: "usr_one", repository: "owner/repository", ref: "--upload-pack=evil" },
+        {
+          userId: "usr_one",
+          repository: "owner/repository",
+          ref: "--upload-pack=evil",
+        },
         signal,
       ),
     ).rejects.toMatchObject({ code: "INVALID_REF" });
