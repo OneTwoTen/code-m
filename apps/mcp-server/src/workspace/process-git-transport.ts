@@ -1,5 +1,5 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ProcessExecutionResult, ProcessRunner } from "@codem/core";
 import type {
@@ -30,12 +30,40 @@ function inheritedEnvironment(): Record<string, string> {
   return environment;
 }
 
-function assertSafeCloneUrl(value: string): void {
+function isolatedGitEnvironment(): Record<string, string> {
+  return {
+    ...inheritedEnvironment(),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: devNull,
+  };
+}
+
+function hookSafeArgs(args: readonly string[]): string[] {
+  return ["-c", `core.hooksPath=${devNull}`, ...args];
+}
+
+function credentialSafeArgs(args: readonly string[]): string[] {
+  return [
+    "-c",
+    "credential.helper=",
+    "-c",
+    `core.hooksPath=${devNull}`,
+    "-c",
+    "protocol.allow=never",
+    "-c",
+    "protocol.https.allow=always",
+    "-c",
+    "http.followRedirects=initial",
+    ...args,
+  ];
+}
+
+function assertSafeCloneUrl(value: string, operation: "clone" | "fetch"): void {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new GitTransportError("clone", "Git clone failed.");
+    throw new GitTransportError(operation, operationMessage(operation));
   }
   if (
     url.protocol !== "https:" ||
@@ -44,7 +72,7 @@ function assertSafeCloneUrl(value: string): void {
     url.search !== "" ||
     url.hash !== ""
   ) {
-    throw new GitTransportError("clone", "Git clone failed.");
+    throw new GitTransportError(operation, operationMessage(operation));
   }
 }
 
@@ -54,6 +82,15 @@ function operationMessage(operation: GitOperation): string {
 
 function successful(result: ProcessExecutionResult): boolean {
   return result.exitCode === 0 && !result.timedOut && !result.cancelled;
+}
+
+function noConfigMatches(result: ProcessExecutionResult): boolean {
+  return (
+    !result.timedOut &&
+    !result.cancelled &&
+    (result.exitCode === 0 || result.exitCode === 1) &&
+    result.stdout.trim().length === 0
+  );
 }
 
 export class ProcessGitTransport implements GitTransport {
@@ -75,7 +112,7 @@ export class ProcessGitTransport implements GitTransport {
     args: readonly string[],
     cwd: string,
     signal: AbortSignal,
-    environment: Readonly<Record<string, string>> = inheritedEnvironment(),
+    environment: Readonly<Record<string, string>> = isolatedGitEnvironment(),
   ): Promise<ProcessExecutionResult> {
     let result: ProcessExecutionResult;
     try {
@@ -112,7 +149,7 @@ export class ProcessGitTransport implements GitTransport {
     try {
       await writeFile(helperPath, ASKPASS_SCRIPT, { mode: 0o700 });
       return await operation({
-        ...inheritedEnvironment(),
+        ...isolatedGitEnvironment(),
         GIT_ASKPASS: helperPath,
         GIT_TERMINAL_PROMPT: "0",
         CODEM_GIT_USERNAME: credential.username,
@@ -124,11 +161,18 @@ export class ProcessGitTransport implements GitTransport {
   }
 
   async clone(input: GitCloneInput): Promise<void> {
-    assertSafeCloneUrl(input.cloneUrl);
+    assertSafeCloneUrl(input.cloneUrl, "clone");
     const result = await this.#withCredential(input.credential, (environment) =>
       this.#execute(
         "clone",
-        ["clone", "--no-checkout", "--origin", "origin", input.cloneUrl, input.checkoutPath],
+        credentialSafeArgs([
+          "clone",
+          "--no-checkout",
+          "--origin",
+          "origin",
+          input.cloneUrl,
+          input.checkoutPath,
+        ]),
         dirname(input.checkoutPath),
         input.signal,
         environment,
@@ -140,10 +184,56 @@ export class ProcessGitTransport implements GitTransport {
   }
 
   async fetch(input: GitFetchInput): Promise<void> {
+    assertSafeCloneUrl(input.cloneUrl, "fetch");
+
+    const rewriteConfiguration = await this.#execute(
+      "fetch",
+      hookSafeArgs([
+        "-C",
+        input.checkoutPath,
+        "config",
+        "--local",
+        "--includes",
+        "--get-regexp",
+        "^url\\..*\\.insteadof$",
+      ]),
+      input.checkoutPath,
+      input.signal,
+    );
+    if (!noConfigMatches(rewriteConfiguration)) {
+      throw new GitTransportError("fetch", operationMessage("fetch"));
+    }
+
+    const remoteUpdate = await this.#execute(
+      "fetch",
+      hookSafeArgs([
+        "-C",
+        input.checkoutPath,
+        "config",
+        "--local",
+        "--replace-all",
+        "remote.origin.url",
+        input.cloneUrl,
+      ]),
+      input.checkoutPath,
+      input.signal,
+    );
+    if (!successful(remoteUpdate)) {
+      throw new GitTransportError("fetch", operationMessage("fetch"));
+    }
+
     const result = await this.#withCredential(input.credential, (environment) =>
       this.#execute(
         "fetch",
-        ["-C", input.checkoutPath, "fetch", "--prune", "--tags", "origin"],
+        credentialSafeArgs([
+          "-C",
+          input.checkoutPath,
+          "fetch",
+          "--prune",
+          "--tags",
+          input.cloneUrl,
+          "+refs/heads/*:refs/remotes/origin/*",
+        ]),
         input.checkoutPath,
         input.signal,
         environment,
@@ -157,7 +247,13 @@ export class ProcessGitTransport implements GitTransport {
   async isDirty(checkoutPath: string, signal: AbortSignal): Promise<boolean> {
     const result = await this.#execute(
       "status",
-      ["-C", checkoutPath, "status", "--porcelain=v1", "--untracked-files=normal"],
+      hookSafeArgs([
+        "-C",
+        checkoutPath,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=normal",
+      ]),
       checkoutPath,
       signal,
     );
@@ -177,7 +273,7 @@ export class ProcessGitTransport implements GitTransport {
     for (const candidate of candidates) {
       const resolved = await this.#execute(
         "checkout",
-        ["-C", checkoutPath, "rev-parse", "--verify", candidate],
+        hookSafeArgs(["-C", checkoutPath, "rev-parse", "--verify", candidate]),
         checkoutPath,
         signal,
       );
@@ -192,7 +288,7 @@ export class ProcessGitTransport implements GitTransport {
 
     const checkout = await this.#execute(
       "checkout",
-      ["-C", checkoutPath, "checkout", "--detach", commit],
+      hookSafeArgs(["-C", checkoutPath, "checkout", "--detach", commit]),
       checkoutPath,
       signal,
     );
