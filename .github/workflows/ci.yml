@@ -25,39 +25,228 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Apply E2E type fixes
+      - name: Apply issue 4 documentation
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("tests/e2e/http.test.ts")
-          source = path.read_text()
-          source = source.replace(
-              '''function textContent(result: Awaited<ReturnType<Client["callTool"]>>): string {
-            const content = result.content[0];
-            if (!content || content.type !== "text") throw new Error("expected MCP text content");
-            return content.text;
-          }''',
-              '''function textContent(result: unknown): string {
-            const contents = (result as { content?: unknown }).content;
-            if (!Array.isArray(contents)) throw new Error("expected MCP content array");
-            const content = contents[0] as { type?: unknown; text?: unknown } | undefined;
-            if (content?.type !== "text" || typeof content.text !== "string") {
-              throw new Error("expected MCP text content");
-            }
-            return content.text;
-          }''',
+          def replace(path_name: str, old: str, new: str) -> None:
+              path = Path(path_name)
+              source = path.read_text()
+              if old in source:
+                  path.write_text(source.replace(old, new))
+              elif new not in source:
+                  raise RuntimeError(f"Expected documentation text not found in {path_name}: {old[:80]!r}")
+
+          def insert_before(path_name: str, marker: str, addition: str) -> None:
+              path = Path(path_name)
+              source = path.read_text()
+              if addition.strip() in source:
+                  return
+              if marker not in source:
+                  raise RuntimeError(f"Expected marker not found in {path_name}: {marker!r}")
+              path.write_text(source.replace(marker, f"{addition.rstrip()}\n\n{marker}", 1))
+
+          replace(
+              ".env.example",
+              "# Persistent application state. Mount this directory as a volume.\nCODEM_DATA_DIR=/data",
+              "# Persistent application state. Mount this directory as a volume.\nCODEM_DATA_DIR=/data\n\n# Git-backed checkouts. Empty means ${CODEM_DATA_DIR}/workspaces.\nCODEM_WORKSPACES_DIR=",
           )
-          source = source.replace(
-              '          permissions: this.repository.permissions,',
-              '          ...(this.repository.permissions ? { permissions: this.repository.permissions } : {}),',
+          replace(".env.example", "CODEM_AUTH_SCOPES=codem:read", "CODEM_AUTH_SCOPES=codem:read codem:workspace")
+          replace(
+              ".env.example",
+              "# CODEM_AUTH_SCOPES=codem:read codem:execute",
+              "# CODEM_AUTH_SCOPES=codem:read codem:workspace codem:execute",
           )
-          source = source.replace(
-              '    await client.connect(transport);',
-              '    await client.connect(transport as Parameters<Client["connect"]>[0]);',
+
+          replace(
+              "README.md",
+              """| Capability | Local stdio | Remote HTTP |
+          |---|---:|---:|
+          | `system.info` | Yes | `codem:read` |
+          | `workspace.read_file` | Yes | `codem:read` |
+          | `github.connection_status` | Yes | `codem:read` |
+          | `terminal.exec` | Yes | Disabled by default |""",
+              """| Capability | Local stdio | Remote HTTP |
+          |---|---:|---:|
+          | `system.info` | Yes | `codem:read` |
+          | `repository.list` | With GitHub configuration | `codem:read` |
+          | `workspace.open_repository` | No | `codem:workspace` |
+          | `workspace.read_file` | Yes | `codem:read` plus `workspaceId` |
+          | `github.connection_status` | Yes | `codem:read` |
+          | `terminal.exec` | Yes | Disabled by default |""",
           )
-          path.write_text(source)
+          replace("README.md", "mkdir -p ./codem-data ./workspace", "mkdir -p ./codem-data")
+          replace("README.md", "  -e CODEM_WORKSPACE_ROOT=/workspace \\\n", "")
+          replace("README.md", "  -v \"$PWD/workspace:/workspace\" \\\n", "")
+          replace(
+              "README.md",
+              "The default database is `/data/codem.sqlite`. Keep `/data` on a persistent volume.",
+              "The default database is `/data/codem.sqlite`, and Git-backed checkouts live under `/data/workspaces`. Keep the entire `/data` directory on one persistent volume.",
+          )
+          replace(
+              "README.md",
+              "5. Approve the `codem:read` consent request during OAuth authorization.",
+              "5. Approve `codem:read` and `codem:workspace` during OAuth authorization.",
+          )
+          replace(
+              "README.md",
+              "Embedded OAuth grants `codem:read`. It does not grant `codem:execute` in this release.",
+              "Embedded OAuth grants `codem:read` and `codem:workspace`. It does not grant `codem:execute` in this release.",
+          )
+          replace(
+              "README.md",
+              "GitHub installation tokens and private keys stay server-side and are never returned through MCP.",
+              "GitHub installation tokens and private keys stay server-side and are never returned through MCP. Use `repository.list`, then `workspace.open_repository`, and pass the returned `workspaceId` to workspace tools. Clean workspaces are updated on reopen; dirty workspaces are preserved and rejected with `WORKSPACE_DIRTY`.",
+          )
+          replace(
+              "README.md",
+              "| `CODEM_WORKSPACE_ROOT` | Current directory | Authorized workspace root |",
+              "| `CODEM_WORKSPACE_ROOT` | Current directory | Local stdio workspace root |",
+          )
+          replace(
+              "README.md",
+              "| `CODEM_DATA_DIR` | `/data` | Persistent application state directory |",
+              "| `CODEM_DATA_DIR` | `/data` | Persistent application state directory |\n| `CODEM_WORKSPACES_DIR` | `/data/workspaces` | Persistent Git repository checkouts |",
+          )
+          replace(
+              "README.md",
+              "SQLite is the implemented production adapter. Run one writable CodeM replica against a SQLite volume.",
+              "SQLite is the implemented production adapter. Run one writable CodeM replica against a persistent `/data` volume containing both SQLite and repository workspaces. Workspace checkouts may contain uncommitted user changes and must be backed up and access-controlled with the database.",
+          )
+
+          replace(
+              "docs/deployment.md",
+              """one CodeM container
+              |-- /data/codem.sqlite
+              `-- /workspace""",
+              """one CodeM container
+              `-- /data
+                  |-- codem.sqlite
+                  `-- workspaces/""",
+          )
+          replace("docs/deployment.md", "CODEM_WORKSPACE_ROOT=/workspace\n", "")
+          replace("docs/deployment.md", "CODEM_DATA_DIR=/data", "CODEM_DATA_DIR=/data\nCODEM_WORKSPACES_DIR=/data/workspaces")
+          replace("docs/deployment.md", "  -v /srv/codem-workspace:/workspace \\\n", "")
+          replace(
+              "docs/deployment.md",
+              "| Workspace | A volume or bind mount at `/workspace` |",
+              "| Repository workspaces | Stored inside the persistent `/data` volume |",
+          )
+          replace(
+              "docs/deployment.md",
+              "Only `codem:read` should be configured for embedded OAuth in this release.",
+              "Configure `codem:read codem:workspace` for embedded OAuth in this release.",
+          )
+          replace("docs/deployment.md", "CODEM_AUTH_SCOPES=codem:read", "CODEM_AUTH_SCOPES=codem:read codem:workspace")
+          replace(
+              "docs/deployment.md",
+              "All GitHub API requests have the same bounded outbound deadline. Installation tokens and private keys remain server-side.",
+              "All GitHub API requests have the same bounded outbound deadline. Installation tokens and private keys remain server-side. Clone/fetch authentication uses an ephemeral askpass helper, while the persisted `origin` URL remains credential-free. Repository opens are serialized within one CodeM process; multi-replica workspace coordination is not supported.",
+          )
+
+          replace(
+              "docs/security-model.md",
+              "- `codem:read` for system, workspace-read, and GitHub status tools\n- `codem:execute` for terminal execution",
+              "- `codem:read` for system information, repository discovery, workspace reads, and GitHub status\n- `codem:workspace` for persistent clone/update operations\n- `codem:execute` for terminal execution",
+          )
+          replace(
+              "docs/security-model.md",
+              "Workspace paths are resolved against the configured root. Existing symlinks are canonicalized before access. Attempts to traverse outside the authorized workspace are rejected.\n\nThe current public read tool supports bounded UTF-8 regular files and rejects binary content.",
+              "Local stdio paths are resolved against the configured root. In HTTP mode, clients select an opaque `workspaceId`; CodeM resolves it through an owner-scoped SQLite row and verifies the checkout remains under `CODEM_WORKSPACES_DIR`. Existing symlinks are canonicalized before access, and traversal or symlink escape is rejected.\n\nRepository names and refs are validated before Git runs. Opaque workspace IDs, not repository input, determine checkout paths. Dirty workspaces are never fetched, reset, cleaned, or overwritten. The public read tool supports bounded UTF-8 regular files and rejects binary content.",
+          )
+          replace(
+              "docs/security-model.md",
+              "- GitHub private keys, installation tokens, OAuth client secrets, and access tokens are never returned by MCP tools.",
+              "- GitHub private keys, installation tokens, OAuth client secrets, and access tokens are never returned by MCP tools. Git installation tokens are passed only through an ephemeral askpass environment and are excluded from command arguments, remotes, SQLite, and safe errors.",
+          )
+          replace(
+              "docs/security-model.md",
+              "The repository currently covers workspace traversal, output truncation, timeout/cancellation, process escalation, stdin limits, HTTP host and OAuth redirect validation, authentication challenges, introspection audience enforcement, consent CSRF, single-use authorization codes, refresh rotation, and GitHub/OAuth timeout errors.",
+              "The repository currently covers workspace traversal, owner isolation, persistent lifecycle transitions, dirty-workspace refusal, Git credential redaction, output truncation, timeout/cancellation, process escalation, stdin limits, HTTP host and OAuth redirect validation, authentication challenges, introspection audience enforcement, consent CSRF, single-use authorization codes, refresh rotation, and GitHub/OAuth timeout errors.",
+          )
+
+          replace(
+              "docs/backup-and-restore.md",
+              "CodeM stores its default application state in SQLite at `/data/codem.sqlite`. This includes users, sessions, OAuth clients and grants, token records, GitHub setup state, encrypted GitHub configuration, and migration history.",
+              "CodeM stores SQLite state at `/data/codem.sqlite` and persistent repository checkouts under `/data/workspaces`. SQLite includes users, sessions, OAuth clients and grants, token records, GitHub setup state, encrypted GitHub configuration, workspace lifecycle metadata, and migration history. Checkouts may contain uncommitted user changes that do not exist on GitHub.",
+          )
+          replace(
+              "docs/backup-and-restore.md",
+              "1. the persistent `/data` volume",
+              "1. the complete persistent `/data` volume, including `codem.sqlite` and `workspaces/`",
+          )
+          replace(
+              "docs/backup-and-restore.md",
+              "- a fresh authorization-code flow succeeds",
+              "- a fresh authorization-code flow succeeds\n- a restored ready workspace can read a known file by `workspaceId`\n- expected uncommitted workspace changes are still present",
+          )
+          replace(
+              "docs/backup-and-restore.md",
+              "- OAuth access and refresh tokens stored in a restored backup may still be valid according to their timestamps. Treat backup access as credential access.",
+              "- OAuth access and refresh tokens stored in a restored backup may still be valid according to their timestamps. Treat backup access as credential access.\n- Repository workspaces may contain private source code and uncommitted changes; protect backup archives as source-code and credential-bearing data.",
+          )
+
+          insert_before(
+              "docs/tool-catalog.md",
+              "## 2. MVP tools",
+              """## Delivered repository workspace tools
+
+          ### `repository.list`
+
+          Requires `codem:read` in HTTP mode. Lists GitHub App-authorized repositories with an opaque cursor and a bounded page size. Results expose repository name, default branch, visibility, and pull/push capability only; clone URLs and credentials are not returned.
+
+          ### `workspace.open_repository`
+
+          Requires `codem:workspace` and an authenticated subject. Accepts canonical `owner/name` plus an optional branch, tag, or commit. It creates or safely updates a persistent checkout and returns an opaque `workspaceId`. Dirty workspaces are preserved and rejected instead of reset.
+
+          ### `workspace.read_file`
+
+          In HTTP mode, `workspaceId` is required and resolved through owner-scoped workspace metadata before the existing traversal and symlink checks run. Stdio mode keeps the configured local root fallback.""",
+          )
+
+          replace(
+              "docs/architecture.md",
+              "  github/                     GitHub App setup and API client\n  storage/                    SQLite migrations and stores",
+              "  github/                     GitHub App setup and repository API client\n  storage/                    SQLite migrations and stores\n  workspace/                  Git transport and persistent workspace lifecycle",
+          )
+          replace(
+              "docs/architecture.md",
+              "The interface prevents auth logic from depending on SQLite query details and is the future extension point for PostgreSQL. A PostgreSQL adapter is not included yet.",
+              "The interfaces prevent auth and workspace lifecycle logic from depending on SQLite query details and are future extension points for PostgreSQL. `WorkspaceStore` scopes every lookup by authenticated user and persists repository/ref identity, checkout path, lifecycle status, safe error text, and open timestamps. A PostgreSQL adapter is not included yet.",
+          )
+          replace(
+              "docs/architecture.md",
+              "HTTP `codem:read` protects read-only tools. `codem:execute` is required for terminal execution in addition to the server policy switch.",
+              "HTTP `codem:read` protects read-only tools, while `codem:workspace` protects persistent clone/update operations. `codem:execute` is required for terminal execution in addition to the server policy switch.",
+          )
+          replace(
+              "docs/architecture.md",
+              "OAuth introspection and GitHub API calls use one timed fetch helper. It composes caller cancellation with a configured timeout and maps timeout failures to safe errors that omit credentials and response bodies.",
+              "OAuth introspection and GitHub API calls use one timed fetch helper. It composes caller cancellation with a configured timeout and maps timeout failures to safe errors that omit credentials and response bodies. Git network operations use a temporary askpass helper and credential-free HTTPS remotes. Workspace opens are serialized by user/repository/ref within one process.",
+          )
+
+          replace(
+              "docs/roadmap.md",
+              "- server-side GitHub App setup and connection checks",
+              "- server-side GitHub App setup, repository discovery, and persistent checkouts",
+          )
+          replace(
+              "docs/roadmap.md",
+              "- `system.info`\n- `workspace.read_file`\n- `github.connection_status`",
+              "- `system.info`\n- `repository.list`\n- `workspace.open_repository`\n- `workspace.read_file`\n- `github.connection_status`",
+          )
+          replace(
+              "docs/roadmap.md",
+              "- encrypted server-side GitHub settings",
+              "- encrypted server-side GitHub settings\n- owner-scoped persistent workspace metadata and `/data/workspaces` checkouts\n- credential-safe Git clone/fetch and dirty-workspace protection",
+          )
+          replace(
+              "docs/roadmap.md",
+              "- repository checkout/worktree management",
+              "- workspace listing, lifecycle administration, and advanced worktree management",
+          )
           PY
 
       - name: Apply formatter for implementation diagnostics
@@ -70,7 +259,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add apps/mcp-server/src tests/e2e docs README.md .env.example
           if ! git diff --cached --quiet; then
-            git commit -m "style: format issue 4 implementation"
+            git commit -m "docs: document persistent repository workspaces"
             git push origin "HEAD:${GITHUB_HEAD_REF}"
           fi
 
